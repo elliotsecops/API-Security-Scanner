@@ -1,0 +1,14 @@
+api_endpoints:
+  - url: "http://127.0.0.1:5000/basic-auth/admin/password"
+    method: "GET"
+  - url: "http://127.0.0.1:5000/post"
+    method: "POST"
+    body: '{"key": "value"}'
+
+auth:
+  username: "admin"
+  password: "password"
+
+injection_payloads:
+  - "' OR '1'='1"
+  - "'; DROP TABLE users;--"
