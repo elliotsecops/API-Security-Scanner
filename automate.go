@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 func main() {
@@ -16,8 +17,13 @@ func main() {
 	// Commit changes
 	runCommand("git", "commit", "-m", "Initial commit: Added API Security Scanner project files")
 
-	// Add remote repository
-	runCommand("git", "remote", "add", "origin", "git@github.com:elliotsecops/api-security-scanner.git")
+	// Check if remote origin already exists
+	if !remoteExists("origin") {
+		// Add remote repository
+		runCommand("git", "remote", "add", "origin", "git@github.com:elliotsecops/api-security-scanner.git")
+	} else {
+		fmt.Println("Remote origin already exists. Skipping remote addition.")
+	}
 
 	// Push changes
 	runCommand("git", "push", "-u", "origin", "master")
@@ -47,6 +53,23 @@ func runCommand(name string, args ...string) {
 		fmt.Printf("Command execution failed: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func remoteExists(remoteName string) bool {
+	cmd := exec.Command("git", "remote")
+	output, err := cmd.Output()
+	if err != nil {
+		fmt.Printf("Failed to check remote: %v\n", err)
+		os.Exit(1)
+	}
+
+	remotes := strings.Split(string(output), "\n")
+	for _, remote := range remotes {
+		if strings.TrimSpace(remote) == remoteName {
+			return true
+		}
+	}
+	return false
 }
 
 func createGitHubActionsWorkflow() {
