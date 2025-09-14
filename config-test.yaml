@@ -1,0 +1,14 @@
+api_endpoints:
+  - url: "https://httpbin.org/status/200"
+    method: "GET"
+  - url: "https://httpbin.org/post"
+    method: "POST"
+    body: '{"test": "data"}'
+
+auth:
+  username: "testuser"
+  password: "testpass"
+
+injection_payloads:
+  - "' OR '1'='1"
+  - "'; DROP TABLE users;--"

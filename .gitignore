@@ -89,5 +89,5 @@ docs/_build/
 *.dev
 *.local
 
-# Roadmap documentation (don't commit planning docs)
-IMPLEMENTATION_ROADMAP.md
+# Roadmap documentation (commit for historical reference)
+# IMPLEMENTATION_ROADMAP.md
