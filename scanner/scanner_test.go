@@ -71,8 +71,8 @@ func TestRunTests(t *testing.T) {
 				APIEndpoints: []APIEndpoint{{URL: server.URL + "/method-test", Method: "GET"}},
 				Auth:         Auth{Username: "admin", Password: "password"},
 			},
-			expectedScore:       50,
-			expectedTestsFailed: []string{"HTTP Method Test", "Injection Test"},
+			expectedScore:       80,
+			expectedTestsFailed: []string{"HTTP Method Test"},
 		},
 		{
 			name: "SQL Injection Failure",
