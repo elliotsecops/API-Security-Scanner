@@ -1,9 +1,9 @@
-package main
+package scanner
 
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -55,7 +55,7 @@ type TestResult struct {
 }
 
 // runTests runs all security tests concurrently and returns a slice of EndpointResult
-func runTests(config *Config) []EndpointResult {
+func RunTests(config *Config) []EndpointResult {
 	var wg sync.WaitGroup
 	results := make([]EndpointResult, len(config.APIEndpoints))
 
@@ -75,7 +75,7 @@ func runTests(config *Config) []EndpointResult {
 
 		go func(e APIEndpoint, i int) {
 			defer wg.Done()
-			if err := testHTTPMethod(e); err != nil {
+			if err := testHTTPMethod(e, config.Auth); err != nil {
 				results[i].Results = append(results[i].Results, TestResult{TestName: "HTTP Method Test", Passed: false, Message: err.Error()})
 				results[i].Score -= 20
 			} else {
@@ -85,7 +85,7 @@ func runTests(config *Config) []EndpointResult {
 
 		go func(e APIEndpoint, i int) {
 			defer wg.Done()
-			if err := testInjection(e, config.InjectionPayloads); err != nil {
+			if err := testInjection(e, config.Auth, config.InjectionPayloads); err != nil {
 				results[i].Results = append(results[i].Results, TestResult{TestName: "Injection Test", Passed: false, Message: err.Error()})
 				results[i].Score -= 50
 			} else {
@@ -125,12 +125,13 @@ func testAuth(endpoint APIEndpoint, auth Auth) error {
 	}
 }
 
-func testHTTPMethod(endpoint APIEndpoint) error {
+func testHTTPMethod(endpoint APIEndpoint, auth Auth) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
+	req.SetBasicAuth(auth.Username, auth.Password)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -138,15 +139,20 @@ func testHTTPMethod(endpoint APIEndpoint) error {
 	}
 	defer resp.Body.Close()
 
+	// A 401 or 403 is an auth failure, not an HTTP method failure.
+	// The auth test will catch these. For this test, we only care about other statuses.
 	switch resp.StatusCode {
-	case http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusUnauthorized:
-		return nil // Consider 401 as "expected" for protected endpoints
+	case http.StatusOK, http.StatusCreated, http.StatusAccepted:
+		return nil // Correct method used
+	case http.StatusMethodNotAllowed, http.StatusNotFound:
+		return HTTPMethodError{fmt.Sprintf("disallowed method returned status: %d", resp.StatusCode)}
 	default:
-		return HTTPMethodError{fmt.Sprintf("unexpected status code: %d", resp.StatusCode)}
+		// Any other error is unexpected.
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 }
 
-func testInjection(endpoint APIEndpoint, payloads []string) error {
+func testInjection(endpoint APIEndpoint, auth Auth, payloads []string) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	// First, send a request with no payload to get a baseline response
@@ -154,6 +160,7 @@ func testInjection(endpoint APIEndpoint, payloads []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create baseline request: %v", err)
 	}
+	baselineReq.SetBasicAuth(auth.Username, auth.Password)
 
 	baselineResp, err := client.Do(baselineReq)
 	if err != nil {
@@ -161,7 +168,12 @@ func testInjection(endpoint APIEndpoint, payloads []string) error {
 	}
 	defer baselineResp.Body.Close()
 
-	baselineBody, err := ioutil.ReadAll(baselineResp.Body)
+	// If baseline is unauthorized, we can't continue the injection test.
+	if baselineResp.StatusCode == http.StatusUnauthorized || baselineResp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("cannot perform injection test: baseline request failed with status %d", baselineResp.StatusCode)
+	}
+
+	baselineBody, err := io.ReadAll(baselineResp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read baseline response body: %v", err)
 	}
@@ -172,6 +184,7 @@ func testInjection(endpoint APIEndpoint, payloads []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to create request: %v", err)
 		}
+		req.SetBasicAuth(auth.Username, auth.Password)
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -179,7 +192,7 @@ func testInjection(endpoint APIEndpoint, payloads []string) error {
 		}
 		defer resp.Body.Close()
 
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("failed to read response body: %v", err)
 		}
@@ -228,7 +241,7 @@ func indicatorsOfSQLInjection(responseBody, baselineBody string) bool {
 	return false
 }
 
-func generateDetailedReport(results []EndpointResult) {
+func GenerateDetailedReport(results []EndpointResult) {
 	fmt.Println("\nAPI Security Scan Detailed Report")
 	fmt.Println("==================================")
 
@@ -248,7 +261,7 @@ func generateDetailedReport(results []EndpointResult) {
 				status = "FAILED"
 			}
 			fmt.Printf("- %s: %s\n", testResult.TestName, status)
-			fmt.Printf("  Details: %s\n", formatTestMessage(testResult.Message))
+			fmt.Printf("  Details: %s\n", formatTestMessage(testResult.Message, result.URL))
 		}
 
 		fmt.Println("Risk Assessment:")
@@ -260,8 +273,9 @@ func generateDetailedReport(results []EndpointResult) {
 	fmt.Println(generateOverallAssessment(results))
 }
 
-func formatTestMessage(message string) string {
-	return strings.TrimSpace(strings.TrimPrefix(message, "Test Failed for http://127.0.0.1:5000/post:"))
+func formatTestMessage(message string, url string) string {
+	prefix := fmt.Sprintf("Test Failed for %s:", url)
+	return strings.TrimSpace(strings.TrimPrefix(message, prefix))
 }
 
 func generateRiskAssessment(result EndpointResult) string {
