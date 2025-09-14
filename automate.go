@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -7,7 +9,7 @@ import (
 	"strings"
 )
 
-func main() {
+func RunAutomate() {
 	// Initialize Git repository
 	runCommand("git", "init")
 
