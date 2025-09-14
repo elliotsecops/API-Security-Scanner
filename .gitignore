@@ -1,0 +1,93 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+api-security-scanner
+api-security-scanner-test
+api-security-scanner-custom
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Log files
+*.log
+logs/
+
+# Coverage reports
+coverage.html
+coverage.out
+
+# Configuration files with sensitive data
+config-local.yaml
+config-prod.yaml
+.env
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+
+# Node modules (if any frontend components)
+node_modules/
+
+# Build artifacts
+dist/
+build/
+
+# Documentation build
+docs/_build/
+
+# Cache directories
+.cache/
+*.cache
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Session files
+*.session
+
+# Backup files
+*.bak
+*.backup
+
+# Archive files
+*.tar.gz
+*.zip
+*.rar
+
+# Development files
+*.dev
+*.local
+
+# Roadmap documentation (don't commit planning docs)
+IMPLEMENTATION_ROADMAP.md
