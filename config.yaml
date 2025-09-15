@@ -12,3 +12,7 @@ auth:
 injection_payloads:
   - "' OR '1'='1"
   - "'; DROP TABLE users;--"
+
+rate_limiting:
+  requests_per_second: 10
+  max_concurrent_requests: 5

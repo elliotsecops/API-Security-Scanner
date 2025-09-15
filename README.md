@@ -34,11 +34,24 @@ Built with performance and reliability in mind, the scanner uses concurrent exec
 - **Configurable Timeouts**: Prevents hanging requests with configurable timeouts
 
 ### 📊 Reporting & Output
+<<<<<<< HEAD
 - **Multiple Output Formats**: Text-based detailed reports
 - **Risk Assessment**: Automated risk scoring and remediation recommendations
 - **Comprehensive Logging**: Structured logging for debugging and audit purposes
 - **Score-based Metrics**: 100-point scoring system for security posture assessment
 
+=======
+- **Multiple Output Formats**: Text, JSON, HTML, CSV, and XML output formats
+- **Risk Assessment**: Automated risk scoring and remediation recommendations
+- **Structured Logging**: Configurable logging with multiple formats (text, JSON)
+- **Score-based Metrics**: 100-point scoring system for security posture assessment
+
+### ⚙️ Configuration & Management
+- **Configuration Validation**: Schema validation with detailed error messages
+- **Rate Limiting**: Configurable request rate and concurrency limits
+- **Endpoint Reachability Testing**: Pre-flight validation of API endpoints
+
+>>>>>>> feature/new-feature
 ## 🛠️ Installation
 
 ### Prerequisites
@@ -87,7 +100,14 @@ docker run --rm -v $(pwd)/config.yaml:/app/config.yaml api-security-scanner
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-config` | Path to configuration file | `config.yaml` |
+<<<<<<< HEAD
 | `-output` | Output format (text, json) | `text` |
+=======
+| `-output` | Output format (text, json, html, csv, xml) | `text` |
+| `-validate` | Validate configuration only, don't run tests | `false` |
+| `-log-level` | Log level (debug, info, warn, error) | `info` |
+| `-log-format` | Log format (text, json) | `text` |
+>>>>>>> feature/new-feature
 | `-timeout` | Request timeout in seconds | `10` |
 | `-verbose` | Enable verbose logging | `false` |
 
@@ -115,6 +135,14 @@ injection_payloads:
   - "'; DROP TABLE users;--"
   - "1' OR '1'='1"
   - "admin'--"
+<<<<<<< HEAD
+=======
+
+# Rate limiting configuration
+rate_limiting:
+  requests_per_second: 10
+  max_concurrent_requests: 5
+>>>>>>> feature/new-feature
 ```
 
 ## 📋 Configuration Reference
@@ -407,4 +435,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Made with ❤️ for the security community**
 
 [![Star on GitHub](https://img.shields.io/github/stars/elliotsecops/API-Security-Scanner.svg?style=social&label=Star)](https://github.com/elliotsecops/API-Security-Scanner)
+<<<<<<< HEAD
 [![Fork on GitHub](https://img.shields.io/github/forks/elliotsecops/API-Security-Scanner.svg?style=social&label=Fork)](https://github.com/elliotsecops/API-Security-Scanner)
+=======
+[![Fork on GitHub](https://img.shields.io/github/forks/elliotsecops/API-Security-Scanner.svg?style=social&label=Fork)](https://github.com/elliotsecops/API-Security-Scanner)
+>>>>>>> feature/new-feature
