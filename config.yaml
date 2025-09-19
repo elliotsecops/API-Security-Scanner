@@ -13,6 +13,16 @@ injection_payloads:
   - "' OR '1'='1"
   - "'; DROP TABLE users;--"
 
+xss_payloads:
+  - "<script>alert('XSS')</script>"
+  - "'><script>alert('XSS')</script>"
+  - "<img src=x onerror=alert('XSS')>"
+  - "javascript:alert('XSS')"
+
+headers:
+  "User-Agent": "API-Security-Scanner/1.0"
+  "X-Scanner": "true"
+
 rate_limiting:
   requests_per_second: 10
   max_concurrent_requests: 5

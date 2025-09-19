@@ -20,6 +20,8 @@ type Config struct {
 	Auth              Auth          `yaml:"auth"`
 	InjectionPayloads []string      `yaml:"injection_payloads"`
 	RateLimiting      RateLimiting  `yaml:"rate_limiting"`
+	XSSPayloads       []string      `yaml:"xss_payloads"`
+	Headers           map[string]string `yaml:"headers"`
 }
 
 // RateLimiting represents rate limiting configuration
@@ -45,10 +47,18 @@ type Auth struct {
 type AuthError struct{ message string }
 type HTTPMethodError struct{ message string }
 type InjectionError struct{ message string }
+type XSSError struct{ message string }
+type HeaderSecurityError struct{ message string }
+type AuthBypassError struct{ message string }
+type ParameterTamperingError struct{ message string }
 
-func (e AuthError) Error() string       { return e.message }
-func (e HTTPMethodError) Error() string { return e.message }
-func (e InjectionError) Error() string  { return e.message }
+func (e AuthError) Error() string              { return e.message }
+func (e HTTPMethodError) Error() string        { return e.message }
+func (e InjectionError) Error() string         { return e.message }
+func (e XSSError) Error() string               { return e.message }
+func (e HeaderSecurityError) Error() string    { return e.message }
+func (e AuthBypassError) Error() string        { return e.message }
+func (e ParameterTamperingError) Error() string { return e.message }
 
 // EndpointResult represents the results of tests for a single endpoint
 type EndpointResult struct {
@@ -88,7 +98,7 @@ func RunTests(config *Config) []EndpointResult {
 	results := make([]EndpointResult, len(config.APIEndpoints))
 
 	for i, endpoint := range config.APIEndpoints {
-		wg.Add(3)
+		wg.Add(7) // Updated to include Phase 2 tests
 		results[i] = EndpointResult{URL: endpoint.URL, Score: 100}
 
 		logging.Debug("Testing endpoint", map[string]interface{}{
@@ -155,6 +165,94 @@ func RunTests(config *Config) []EndpointResult {
 			} else {
 				results[i].Results = append(results[i].Results, TestResult{TestName: "Injection Test", Passed: true, Message: "Injection Test Passed"})
 				logging.Debug("Injection test passed", map[string]interface{}{
+					"url": e.URL,
+				})
+			}
+		}(endpoint, i)
+
+		// Phase 2: XSS vulnerability detection
+		go func(e APIEndpoint, i int) {
+			defer wg.Done()
+			// Wait for rate limiter
+			rateLimiter.Wait()
+			defer rateLimiter.Done()
+			
+			if err := testXSS(e, config.Auth, config.XSSPayloads); err != nil {
+				results[i].Results = append(results[i].Results, TestResult{TestName: "XSS Test", Passed: false, Message: err.Error()})
+				results[i].Score -= 40
+				logging.Warn("XSS test failed", map[string]interface{}{
+					"url":   e.URL,
+					"error": err.Error(),
+				})
+			} else {
+				results[i].Results = append(results[i].Results, TestResult{TestName: "XSS Test", Passed: true, Message: "XSS Test Passed"})
+				logging.Debug("XSS test passed", map[string]interface{}{
+					"url": e.URL,
+				})
+			}
+		}(endpoint, i)
+
+		// Phase 2: Header security analysis
+		go func(e APIEndpoint, i int) {
+			defer wg.Done()
+			// Wait for rate limiter
+			rateLimiter.Wait()
+			defer rateLimiter.Done()
+			
+			if err := testHeaderSecurity(e, config.Auth, config.Headers); err != nil {
+				results[i].Results = append(results[i].Results, TestResult{TestName: "Header Security Test", Passed: false, Message: err.Error()})
+				results[i].Score -= 25
+				logging.Warn("Header security test failed", map[string]interface{}{
+					"url":   e.URL,
+					"error": err.Error(),
+				})
+			} else {
+				results[i].Results = append(results[i].Results, TestResult{TestName: "Header Security Test", Passed: true, Message: "Header Security Test Passed"})
+				logging.Debug("Header security test passed", map[string]interface{}{
+					"url": e.URL,
+				})
+			}
+		}(endpoint, i)
+
+		// Phase 2: Authentication bypass testing
+		go func(e APIEndpoint, i int) {
+			defer wg.Done()
+			// Wait for rate limiter
+			rateLimiter.Wait()
+			defer rateLimiter.Done()
+			
+			if err := testAuthBypass(e, config.Auth); err != nil {
+				results[i].Results = append(results[i].Results, TestResult{TestName: "Auth Bypass Test", Passed: false, Message: err.Error()})
+				results[i].Score -= 35
+				logging.Warn("Auth bypass test failed", map[string]interface{}{
+					"url":   e.URL,
+					"error": err.Error(),
+				})
+			} else {
+				results[i].Results = append(results[i].Results, TestResult{TestName: "Auth Bypass Test", Passed: true, Message: "Auth Bypass Test Passed"})
+				logging.Debug("Auth bypass test passed", map[string]interface{}{
+					"url": e.URL,
+				})
+			}
+		}(endpoint, i)
+
+		// Phase 2: Parameter tampering detection
+		go func(e APIEndpoint, i int) {
+			defer wg.Done()
+			// Wait for rate limiter
+			rateLimiter.Wait()
+			defer rateLimiter.Done()
+			
+			if err := testParameterTampering(e, config.Auth); err != nil {
+				results[i].Results = append(results[i].Results, TestResult{TestName: "Parameter Tampering Test", Passed: false, Message: err.Error()})
+				results[i].Score -= 30
+				logging.Warn("Parameter tampering test failed", map[string]interface{}{
+					"url":   e.URL,
+					"error": err.Error(),
+				})
+			} else {
+				results[i].Results = append(results[i].Results, TestResult{TestName: "Parameter Tampering Test", Passed: true, Message: "Parameter Tampering Test Passed"})
+				logging.Debug("Parameter tampering test passed", map[string]interface{}{
 					"url": e.URL,
 				})
 			}
@@ -377,6 +475,342 @@ func indicatorsOfSQLInjection(responseBody, baselineBody string) bool {
 	return false
 }
 
+// testXSS tests for cross-site scripting vulnerabilities
+func testXSS(endpoint APIEndpoint, auth Auth, payloads []string) error {
+	logging.Debug("Testing XSS", map[string]interface{}{
+		"url":           endpoint.URL,
+		"method":        endpoint.Method,
+		"payloads_count": len(payloads),
+	})
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// First, send a request with no payload to get a baseline response
+	baselineReq, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
+	if err != nil {
+		logging.Error("Failed to create baseline request", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("failed to create baseline request: %v", err)
+	}
+	baselineReq.SetBasicAuth(auth.Username, auth.Password)
+
+	baselineResp, err := client.Do(baselineReq)
+	if err != nil {
+		logging.Error("Baseline request failed", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("baseline request failed: %v", err)
+	}
+	defer baselineResp.Body.Close()
+
+	// If baseline is unauthorized, we can't continue the XSS test.
+	if baselineResp.StatusCode == http.StatusUnauthorized || baselineResp.StatusCode == http.StatusForbidden {
+		logging.Warn("Cannot perform XSS test", map[string]interface{}{
+			"url":    endpoint.URL,
+			"status": baselineResp.StatusCode,
+		})
+		return fmt.Errorf("cannot perform XSS test: baseline request failed with status %d", baselineResp.StatusCode)
+	}
+
+	baselineBody, err := io.ReadAll(baselineResp.Body)
+	if err != nil {
+		logging.Error("Failed to read baseline response body", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("failed to read baseline response body: %v", err)
+	}
+
+	for i, payload := range payloads {
+		logging.Debug("Testing XSS payload", map[string]interface{}{
+			"url":     endpoint.URL,
+			"payload": payload,
+			"index":   i,
+		})
+
+		// Inject payload into the body
+		reqBody := strings.Replace(endpoint.Body, "\"value\"", fmt.Sprintf("\"%s\"", payload), -1)
+		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(reqBody))
+		if err != nil {
+			logging.Error("Failed to create request", map[string]interface{}{
+				"url":     endpoint.URL,
+				"payload": payload,
+				"error":   err.Error(),
+			})
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+		req.SetBasicAuth(auth.Username, auth.Password)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			logging.Error("Request failed", map[string]interface{}{
+				"url":     endpoint.URL,
+				"payload": payload,
+				"error":   err.Error(),
+			})
+			return fmt.Errorf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logging.Error("Failed to read response body", map[string]interface{}{
+				"url":     endpoint.URL,
+				"payload": payload,
+				"error":   err.Error(),
+			})
+			return fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		// Check for indicators of successful XSS
+		if indicatorsOfXSS(string(body), string(baselineBody), payload) {
+			logging.Warn("Potential XSS detected", map[string]interface{}{
+				"url":     endpoint.URL,
+				"payload": payload,
+			})
+			return XSSError{fmt.Sprintf("potential XSS detected with payload: %s", payload)}
+		}
+	}
+	return nil
+}
+
+// indicatorsOfXSS checks for indicators of successful XSS
+func indicatorsOfXSS(responseBody, baselineBody, payload string) bool {
+	// Check if the payload appears in the response without proper sanitization
+	if strings.Contains(responseBody, payload) && !strings.Contains(baselineBody, payload) {
+		// Check if the payload appears in a script context or as HTML
+		scriptContext := strings.Contains(responseBody, fmt.Sprintf("<script>%s</script>", payload)) ||
+			strings.Contains(responseBody, fmt.Sprintf("onload=\"%s\"", payload)) ||
+			strings.Contains(responseBody, fmt.Sprintf("onerror=\"%s\"", payload)) ||
+			strings.Contains(responseBody, fmt.Sprintf("onclick=\"%s\"", payload))
+		
+		if scriptContext {
+			return true
+		}
+		
+		// Check if payload appears in HTML tags
+		if strings.Contains(responseBody, fmt.Sprintf("<%s>", payload)) ||
+			strings.Contains(responseBody, fmt.Sprintf(">%s<", payload)) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// testHeaderSecurity analyzes security headers
+func testHeaderSecurity(endpoint APIEndpoint, auth Auth, customHeaders map[string]string) error {
+	logging.Debug("Testing header security", map[string]interface{}{
+		"url": endpoint.URL,
+		"method": endpoint.Method,
+	})
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
+	if err != nil {
+		logging.Error("Failed to create request", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.SetBasicAuth(auth.Username, auth.Password)
+
+	// Add custom headers
+	for key, value := range customHeaders {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Error("Request failed", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Analyze security headers
+	issues := []string{}
+
+	// Check for missing security headers
+	securityHeaders := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY or SAMEORIGIN",
+		"X-XSS-Protection":       "1; mode=block",
+		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+		"Content-Security-Policy": "policy directives",
+	}
+
+	for header, recommended := range securityHeaders {
+		if resp.Header.Get(header) == "" {
+			issues = append(issues, fmt.Sprintf("Missing recommended security header: %s (recommended value: %s)", header, recommended))
+		}
+	}
+
+	// Check for insecure headers
+	insecureHeaders := []string{
+		"X-Powered-By",
+		"Server",
+	}
+
+	for _, header := range insecureHeaders {
+		if resp.Header.Get(header) != "" {
+			issues = append(issues, fmt.Sprintf("Insecure information disclosure header: %s (%s)", header, resp.Header.Get(header)))
+		}
+	}
+
+	// Check CORS settings
+	accessControlAllowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
+	if accessControlAllowOrigin == "*" {
+		issues = append(issues, "Insecure CORS policy: Access-Control-Allow-Origin set to wildcard (*)")
+	}
+
+	// Check cookie security
+	setCookie := resp.Header.Values("Set-Cookie")
+	for _, cookie := range setCookie {
+		if !strings.Contains(cookie, "Secure") {
+			issues = append(issues, "Cookie missing Secure attribute: " + cookie)
+		}
+		if !strings.Contains(cookie, "HttpOnly") {
+			issues = append(issues, "Cookie missing HttpOnly attribute: " + cookie)
+		}
+		if !strings.Contains(cookie, "SameSite") {
+			issues = append(issues, "Cookie missing SameSite attribute: " + cookie)
+		}
+	}
+
+	if len(issues) > 0 {
+		logging.Warn("Header security issues detected", map[string]interface{}{
+			"url":    endpoint.URL,
+			"issues": issues,
+		})
+		return HeaderSecurityError{fmt.Sprintf("header security issues detected: %s", strings.Join(issues, "; "))}
+	}
+
+	return nil
+}
+
+// testAuthBypass tests for authentication bypass vulnerabilities
+func testAuthBypass(endpoint APIEndpoint, auth Auth) error {
+	logging.Debug("Testing authentication bypass", map[string]interface{}{
+		"url": endpoint.URL,
+		"method": endpoint.Method,
+		"has_auth": auth.Username != "" && auth.Password != "",
+	})
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Test 1: Request without authentication
+	req1, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
+	if err != nil {
+		logging.Error("Failed to create request without auth", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("failed to create request without auth: %v", err)
+	}
+
+	resp1, err := client.Do(req1)
+	if err != nil {
+		logging.Error("Request without auth failed", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("request without auth failed: %v", err)
+	}
+	defer resp1.Body.Close()
+
+	// If we can access the endpoint without auth when it should require it, that's a bypass
+	if resp1.StatusCode == http.StatusOK || resp1.StatusCode == http.StatusCreated || resp1.StatusCode == http.StatusAccepted {
+		logging.Warn("Authentication bypass detected", map[string]interface{}{
+			"url": endpoint.URL,
+			"status_without_auth": resp1.StatusCode,
+		})
+		return AuthBypassError{fmt.Sprintf("authentication bypass detected: endpoint accessible without authentication (status: %d)", resp1.StatusCode)}
+	}
+
+	// Test 2: Request with modified authentication tokens
+	if auth.Username != "" && auth.Password != "" {
+		// Test with invalid credentials
+		req2, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
+		if err != nil {
+			logging.Error("Failed to create request with invalid auth", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("failed to create request with invalid auth: %v", err)
+		}
+		req2.SetBasicAuth("invalid_user", "invalid_pass")
+
+		resp2, err := client.Do(req2)
+		if err != nil {
+			logging.Error("Request with invalid auth failed", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("request with invalid auth failed: %v", err)
+		}
+		defer resp2.Body.Close()
+
+		// If invalid credentials still grant access, that's a bypass
+		if resp2.StatusCode == http.StatusOK || resp2.StatusCode == http.StatusCreated || resp2.StatusCode == http.StatusAccepted {
+			logging.Warn("Authentication bypass with invalid credentials", map[string]interface{}{
+				"url": endpoint.URL,
+				"status_with_invalid_auth": resp2.StatusCode,
+			})
+			return AuthBypassError{fmt.Sprintf("authentication bypass detected: endpoint accessible with invalid credentials (status: %d)", resp2.StatusCode)}
+		}
+	}
+
+	// Test 3: Check for common auth bypass headers
+	bypassHeaders := map[string]string{
+		"X-Forwarded-For": "127.0.0.1",
+		"X-Original-URL":  endpoint.URL,
+		"X-Rewrite-URL":   endpoint.URL,
+		"X-Originating-IP": "127.0.0.1",
+	}
+
+	req3, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
+	if err != nil {
+		logging.Error("Failed to create request with bypass headers", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("failed to create request with bypass headers: %v", err)
+	}
+	
+	// Add bypass headers
+	for key, value := range bypassHeaders {
+		req3.Header.Set(key, value)
+	}
+
+	resp3, err := client.Do(req3)
+	if err != nil {
+		logging.Error("Request with bypass headers failed", map[string]interface{}{
+			"url":   endpoint.URL,
+			"error": err.Error(),
+		})
+		return fmt.Errorf("request with bypass headers failed: %v", err)
+	}
+	defer resp3.Body.Close()
+
+	// If adding bypass headers grants access, that's a bypass
+	if resp3.StatusCode == http.StatusOK || resp3.StatusCode == http.StatusCreated || resp3.StatusCode == http.StatusAccepted {
+		logging.Warn("Authentication bypass with headers", map[string]interface{}{
+			"url": endpoint.URL,
+			"status_with_bypass_headers": resp3.StatusCode,
+		})
+		return AuthBypassError{fmt.Sprintf("authentication bypass detected: endpoint accessible with bypass headers (status: %d)", resp3.StatusCode)}
+	}
+
+	return nil
+}
+
 func GenerateDetailedReport(results []EndpointResult) {
 	fmt.Println("\nAPI Security Scan Detailed Report")
 	fmt.Println("==================================")
@@ -425,6 +859,14 @@ func generateRiskAssessment(result EndpointResult) string {
 				risks = append(risks, "- Improper HTTP method handling could lead to security bypasses.")
 			case "Injection Test":
 				risks = append(risks, "- SQL injection vulnerabilities pose a significant data breach risk.")
+			case "XSS Test":
+				risks = append(risks, "- Cross-site scripting vulnerabilities could allow malicious script execution.")
+			case "Header Security Test":
+				risks = append(risks, "- Insecure headers may expose sensitive information or lack security protections.")
+			case "Auth Bypass Test":
+				risks = append(risks, "- Authentication bypass vulnerabilities could allow unauthorized access to protected resources.")
+			case "Parameter Tampering Test":
+				risks = append(risks, "- Parameter tampering vulnerabilities could allow attackers to manipulate API requests.")
 			}
 		}
 	}
@@ -610,4 +1052,120 @@ func GenerateXMLReport(results []EndpointResult) {
 	fmt.Println("  </scan_results>")
 	fmt.Printf("  <overall_assessment>%s</overall_assessment>\n", generateOverallAssessment(results))
 	fmt.Println("</api_security_scan>")
+}
+
+// testParameterTampering tests for parameter manipulation vulnerabilities
+func testParameterTampering(endpoint APIEndpoint, auth Auth) error {
+	logging.Debug("Testing parameter tampering", map[string]interface{}{
+		"url": endpoint.URL,
+		"method": endpoint.Method,
+	})
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Test 1: Modify numeric parameters in the body
+	if strings.Contains(endpoint.Body, "\"key\":") {
+		// Try replacing values with different numeric values
+		modifiedBody := strings.Replace(endpoint.Body, "\"value\"", "\"12345\"", -1)
+		
+		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(modifiedBody))
+		if err != nil {
+			logging.Error("Failed to create request with modified parameters", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("failed to create request with modified parameters: %v", err)
+		}
+		req.SetBasicAuth(auth.Username, auth.Password)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			logging.Error("Request with modified parameters failed", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("request with modified parameters failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// If changing parameters still grants the same access, that might indicate a vulnerability
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted {
+			// This is normal behavior, not necessarily a vulnerability
+			logging.Debug("Parameter modification test completed", map[string]interface{}{
+				"url": endpoint.URL,
+				"status": resp.StatusCode,
+			})
+		}
+	}
+
+	// Test 2: Add extra parameters
+	if endpoint.Body != "" {
+		extraParamBody := strings.TrimRight(endpoint.Body, "}") + ", \"extra_param\": \"tampered_value\"}"
+		
+		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(extraParamBody))
+		if err != nil {
+			logging.Error("Failed to create request with extra parameters", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("failed to create request with extra parameters: %v", err)
+		}
+		req.SetBasicAuth(auth.Username, auth.Password)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			logging.Error("Request with extra parameters failed", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("request with extra parameters failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// If adding extra parameters still grants access, that might indicate poor input validation
+		logging.Debug("Extra parameter test completed", map[string]interface{}{
+			"url": endpoint.URL,
+			"status_with_extra_params": resp.StatusCode,
+		})
+	}
+
+	// Test 3: Test for IDOR (Insecure Direct Object Reference) by trying to access different resource IDs
+	// This is a simplified test - in a real implementation, this would be more sophisticated
+	if strings.Contains(endpoint.URL, "/") {
+		// Try to access a different resource by modifying the URL
+		modifiedURL := strings.Replace(endpoint.URL, "1", "2", -1)
+		if modifiedURL != endpoint.URL {
+			req, err := http.NewRequest(endpoint.Method, modifiedURL, bytes.NewBufferString(endpoint.Body))
+			if err != nil {
+				logging.Error("Failed to create request with modified URL", map[string]interface{}{
+					"url":   modifiedURL,
+					"error": err.Error(),
+				})
+				return fmt.Errorf("failed to create request with modified URL: %v", err)
+			}
+			req.SetBasicAuth(auth.Username, auth.Password)
+
+			resp, err := client.Do(req)
+			if err != nil {
+				logging.Error("Request with modified URL failed", map[string]interface{}{
+					"url":   modifiedURL,
+					"error": err.Error(),
+				})
+				return fmt.Errorf("request with modified URL failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			// If we can access a different resource, that might indicate an IDOR vulnerability
+			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted {
+				logging.Warn("Potential IDOR detected", map[string]interface{}{
+					"original_url": endpoint.URL,
+					"modified_url": modifiedURL,
+					"status": resp.StatusCode,
+				})
+				return ParameterTamperingError{fmt.Sprintf("potential IDOR detected: able to access %s (status: %d)", modifiedURL, resp.StatusCode)}
+			}
+		}
+	}
+
+	return nil
 }

@@ -65,6 +65,16 @@ func Validate(config *scanner.Config) error {
 		return fmt.Errorf("both username and password are required for authentication, or neither")
 	}
 
+	// Set default XSS payloads if none provided
+	if len(config.XSSPayloads) == 0 {
+		config.XSSPayloads = []string{
+			"<script>alert('XSS')</script>",
+			"'><script>alert('XSS')</script>",
+			"<img src=x onerror=alert('XSS')>",
+			"javascript:alert('XSS')",
+		}
+	}
+
 	return nil
 }
 

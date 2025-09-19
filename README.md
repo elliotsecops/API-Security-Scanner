@@ -15,6 +15,8 @@ The API Security Scanner performs automated security assessments of API endpoint
 - **HTTP Method Validation**
 - **Security Header Analysis**
 - **Parameter Tampering Detection**
+- **Cross-Site Scripting (XSS) Vulnerabilities**
+- **Authentication Bypass Testing**
 
 Built with performance and reliability in mind, the scanner uses concurrent execution to efficiently test multiple endpoints simultaneously while providing detailed security reports.
 
@@ -24,6 +26,10 @@ Built with performance and reliability in mind, the scanner uses concurrent exec
 - **Authentication Testing**: Validates basic auth credentials and identifies access control issues
 - **SQL Injection Detection**: Comprehensive payload-based testing for SQL injection vulnerabilities
 - **HTTP Method Validation**: Ensures proper HTTP method handling and prevents method-based attacks
+- **XSS Vulnerability Detection**: Tests for cross-site scripting vulnerabilities using common payloads
+- **Header Security Analysis**: Analyzes HTTP response headers for security issues
+- **Authentication Bypass Testing**: Tests for authentication vulnerabilities
+- **Parameter Tampering Detection**: Tests for parameter manipulation vulnerabilities
 - **Concurrent Execution**: High-performance parallel testing of multiple endpoints
 - **Detailed Reporting**: Comprehensive security assessments with risk analysis
 
@@ -34,13 +40,6 @@ Built with performance and reliability in mind, the scanner uses concurrent exec
 - **Configurable Timeouts**: Prevents hanging requests with configurable timeouts
 
 ### 📊 Reporting & Output
-<<<<<<< HEAD
-- **Multiple Output Formats**: Text-based detailed reports
-- **Risk Assessment**: Automated risk scoring and remediation recommendations
-- **Comprehensive Logging**: Structured logging for debugging and audit purposes
-- **Score-based Metrics**: 100-point scoring system for security posture assessment
-
-=======
 - **Multiple Output Formats**: Text, JSON, HTML, CSV, and XML output formats
 - **Risk Assessment**: Automated risk scoring and remediation recommendations
 - **Structured Logging**: Configurable logging with multiple formats (text, JSON)
@@ -51,7 +50,6 @@ Built with performance and reliability in mind, the scanner uses concurrent exec
 - **Rate Limiting**: Configurable request rate and concurrency limits
 - **Endpoint Reachability Testing**: Pre-flight validation of API endpoints
 
->>>>>>> feature/new-feature
 ## 🛠️ Installation
 
 ### Prerequisites
@@ -100,14 +98,10 @@ docker run --rm -v $(pwd)/config.yaml:/app/config.yaml api-security-scanner
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-config` | Path to configuration file | `config.yaml` |
-<<<<<<< HEAD
-| `-output` | Output format (text, json) | `text` |
-=======
 | `-output` | Output format (text, json, html, csv, xml) | `text` |
 | `-validate` | Validate configuration only, don't run tests | `false` |
 | `-log-level` | Log level (debug, info, warn, error) | `info` |
 | `-log-format` | Log format (text, json) | `text` |
->>>>>>> feature/new-feature
 | `-timeout` | Request timeout in seconds | `10` |
 | `-verbose` | Enable verbose logging | `false` |
 
@@ -135,14 +129,22 @@ injection_payloads:
   - "'; DROP TABLE users;--"
   - "1' OR '1'='1"
   - "admin'--"
-<<<<<<< HEAD
-=======
+
+# XSS test payloads
+xss_payloads:
+  - "<script>alert('XSS')</script>"
+  - "'><script>alert('XSS')</script>"
+  - "<img src=x onerror=alert('XSS')>"
 
 # Rate limiting configuration
 rate_limiting:
   requests_per_second: 10
   max_concurrent_requests: 5
->>>>>>> feature/new-feature
+
+# Custom headers
+headers:
+  "User-Agent": "API-Security-Scanner/1.0"
+  "X-Scanner": "true"
 ```
 
 ## 📋 Configuration Reference
@@ -172,7 +174,25 @@ injection_payloads:
   - "'; DROP TABLE users;--"         # SQL DROP statement
   - "1' OR '1'='1"                   # Numeric SQL injection
   - "admin'--"                       # Comment-based SQL injection
-  - "<script>alert('XSS')</script>" # XSS payload (if testing web APIs)
+```
+
+### XSS Payloads Configuration
+
+```yaml
+xss_payloads:
+  - "<script>alert('XSS')</script>"      # Basic script tag injection
+  - "'><script>alert('XSS')</script>"    # Attribute breaking injection
+  - "<img src=x onerror=alert('XSS')>"   # Image tag injection
+  - "javascript:alert('XSS')"            # JavaScript URI injection
+```
+
+### Headers Configuration
+
+```yaml
+headers:
+  "User-Agent": "API-Security-Scanner/2.0"
+  "X-Test-Header": "test-value"
+  "Accept": "application/json"
 ```
 
 ## 📊 Sample Output
@@ -192,12 +212,20 @@ Test Results:
   Details: Method validation successful
 - Injection Test: PASSED
   Details: No injection vulnerabilities detected
+- XSS Test: PASSED
+  Details: No XSS vulnerabilities detected
+- Header Security Test: PASSED
+  Details: All security headers present
+- Auth Bypass Test: PASSED
+  Details: Authentication properly enforced
+- Parameter Tampering Test: PASSED
+  Details: Parameter validation successful
 
 Risk Assessment:
 No significant risks detected.
 
 Endpoint: https://api.example.com/v1/data
-Overall Score: 50/100
+Overall Score: 25/100
 Test Results:
 - Auth Test: PASSED
   Details: Authentication successful
@@ -205,13 +233,24 @@ Test Results:
   Details: Method validation successful
 - Injection Test: FAILED
   Details: Potential SQL injection detected with payload: ' OR '1'='1
+- XSS Test: FAILED
+  Details: Potential XSS detected with payload: <script>alert('XSS')</script>
+- Header Security Test: FAILED
+  Details: Missing security headers: X-Frame-Options, X-Content-Type-Options
+- Auth Bypass Test: FAILED
+  Details: Endpoint accessible without authentication
+- Parameter Tampering Test: PASSED
+  Details: Parameter validation successful
 
 Risk Assessment:
 - SQL injection vulnerabilities pose a significant data breach risk.
+- Cross-site scripting vulnerabilities could allow malicious script execution.
+- Insecure headers may expose sensitive information or lack security protections.
+- Authentication bypass vulnerabilities could allow unauthorized access to protected resources.
 
 Overall Security Assessment:
-Average Security Score: 75/100
-Critical Vulnerabilities Detected: 1
+Average Security Score: 62/100
+Critical Vulnerabilities Detected: 2
 
 Moderate security risks detected. Address identified vulnerabilities promptly.
 ```
@@ -224,6 +263,10 @@ The scanner uses a 100-point scoring system:
 - **Authentication Failure**: -30 points
 - **HTTP Method Failure**: -20 points
 - **Injection Vulnerability**: -50 points
+- **XSS Vulnerability**: -40 points
+- **Header Security Issues**: -25 points
+- **Auth Bypass Vulnerability**: -35 points
+- **Parameter Tampering Vulnerability**: -30 points
 
 ### Risk Levels
 
@@ -262,6 +305,42 @@ The scanner validates HTTP method handling by:
 2. Verifying proper handling of disallowed methods
 3. Checking for method-based access control issues
 4. Ensuring REST compliance
+
+### XSS Vulnerability Testing
+
+The scanner tests for XSS vulnerabilities by:
+
+1. Sending baseline requests to establish normal response patterns
+2. Testing with various XSS payloads
+3. Analyzing response content for unsanitized payload reflection
+4. Looking for indicators of successful XSS execution
+
+### Header Security Analysis
+
+The scanner analyzes HTTP response headers by:
+
+1. Checking for presence of recommended security headers
+2. Identifying insecure information disclosure headers
+3. Validating cookie security attributes
+4. Analyzing CORS policy configurations
+
+### Authentication Bypass Testing
+
+The scanner tests for authentication bypass by:
+
+1. Sending requests without authentication credentials
+2. Testing with invalid credentials
+3. Checking for common bypass headers
+4. Analyzing response codes for unauthorized access
+
+### Parameter Tampering Detection
+
+The scanner tests for parameter tampering by:
+
+1. Modifying parameter values in requests
+2. Adding extra parameters to requests
+3. Testing for IDOR (Insecure Direct Object Reference)
+4. Analyzing response behavior for parameter changes
 
 ## 🔧 Advanced Configuration
 
@@ -412,16 +491,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] Concurrent execution
 - [x] Detailed reporting
 
-### Phase 2: Enhanced Testing (Planned)
-- [ ] XSS vulnerability detection
-- [ ] NoSQL injection testing
-- [ ] Security header analysis
-- [ ] Rate limiting and throttling
+### Phase 2: Enhanced Testing ✅
+- [x] XSS vulnerability detection
+- [x] Security header analysis
+- [x] Authentication bypass testing
+- [x] Parameter tampering detection
 
 ### Phase 3: Advanced Features (Planned)
+- [ ] NoSQL injection testing
 - [ ] OpenAPI/Swagger integration
 - [ ] API discovery and crawling
-- [ ] Multiple output formats (JSON, XML, HTML)
 - [ ] Historical comparison and trending
 
 ### Phase 4: Enterprise Features (Planned)
@@ -435,8 +514,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Made with ❤️ for the security community**
 
 [![Star on GitHub](https://img.shields.io/github/stars/elliotsecops/API-Security-Scanner.svg?style=social&label=Star)](https://github.com/elliotsecops/API-Security-Scanner)
-<<<<<<< HEAD
 [![Fork on GitHub](https://img.shields.io/github/forks/elliotsecops/API-Security-Scanner.svg?style=social&label=Fork)](https://github.com/elliotsecops/API-Security-Scanner)
-=======
-[![Fork on GitHub](https://img.shields.io/github/forks/elliotsecops/API-Security-Scanner.svg?style=social&label=Fork)](https://github.com/elliotsecops/API-Security-Scanner)
->>>>>>> feature/new-feature
