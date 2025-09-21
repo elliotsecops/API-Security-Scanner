@@ -1,0 +1,35 @@
+api_endpoints:
+  - url: "https://httpbin.org/status/200"
+    method: "GET"
+
+auth:
+  username: "testuser"
+  password: "testpass"
+
+injection_payloads:
+  - "' OR '1'='1"
+  - "'; DROP TABLE users;--"
+
+xss_payloads:
+  - "<script>alert('XSS')</script>"
+  - "'><script>alert('XSS')</script>"
+
+# Phase 3: NoSQL injection payloads
+nosql_payloads:
+  - "{$ne: null}"
+  - "{$gt: ''}"
+
+# Phase 3: Historical data configuration
+historical_data:
+  enabled: true
+  storage_path: "./test-history"
+  retention_days: 30
+  compare_previous: true
+  trend_analysis: true
+
+headers:
+  "User-Agent": "API-Security-Scanner/1.0"
+
+rate_limiting:
+  requests_per_second: 5
+  max_concurrent_requests: 3

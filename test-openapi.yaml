@@ -1,0 +1,42 @@
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+  description: A simple test API for OpenAPI integration testing
+
+servers:
+  - url: https://httpbin.org
+
+paths:
+  /status/200:
+    get:
+      summary: Get status 200
+      description: Returns a 200 OK response
+      responses:
+        '200':
+          description: Successful response
+  /post:
+    post:
+      summary: Post data
+      description: Posts data to the server
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+      responses:
+        '200':
+          description: Successful response
+
+components:
+  schemas:
+    TestData:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string

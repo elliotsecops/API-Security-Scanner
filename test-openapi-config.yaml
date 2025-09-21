@@ -1,13 +1,10 @@
 api_endpoints:
-  - url: "http://127.0.0.1:5000/basic-auth/admin/password"
+  - url: "https://httpbin.org/status/200"
     method: "GET"
-  - url: "http://127.0.0.1:5000/post"
-    method: "POST"
-    body: '{"key": "value"}'
 
 auth:
-  username: "admin"
-  password: "password"
+  username: "testuser"
+  password: "testpass"
 
 injection_payloads:
   - "' OR '1'='1"
@@ -16,50 +13,37 @@ injection_payloads:
 xss_payloads:
   - "<script>alert('XSS')</script>"
   - "'><script>alert('XSS')</script>"
-  - "<img src=x onerror=alert('XSS')>"
-  - "javascript:alert('XSS')"
 
 # Phase 3: NoSQL injection payloads
 nosql_payloads:
   - "{$ne: null}"
   - "{$gt: ''}"
-  - "{$or: [1,1]}"
-  - "{$where: 'sleep(100)'}"
-  - "{$regex: '.*'}"
-  - "{$exists: true}"
-  - "{$in: [1,2,3]}"
 
 # Phase 3: OpenAPI specification path
-# openapi_spec: "path/to/openapi.yaml"
+openapi_spec: "test-openapi.yaml"
 
 # Phase 3: API discovery configuration
 api_discovery:
   enabled: true
-  max_depth: 3
+  max_depth: 2
   follow_links: true
   discover_params: true
   user_agent: "API-Security-Scanner-Discovery/1.0"
   exclude_patterns:
     - "/static/"
     - "/assets/"
-    - "/images/"
-    - ".css"
-    - ".js"
-    - ".png"
-    - ".jpg"
 
 # Phase 3: Historical data configuration
 historical_data:
   enabled: true
-  storage_path: "./history"
+  storage_path: "./test-history"
   retention_days: 30
   compare_previous: true
   trend_analysis: true
 
 headers:
   "User-Agent": "API-Security-Scanner/1.0"
-  "X-Scanner": "true"
 
 rate_limiting:
-  requests_per_second: 10
-  max_concurrent_requests: 5
+  requests_per_second: 5
+  max_concurrent_requests: 3

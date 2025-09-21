@@ -75,6 +75,19 @@ func Validate(config *scanner.Config) error {
 		}
 	}
 
+	// Set default NoSQL payloads if none provided
+	if len(config.NoSQLPayloads) == 0 {
+		config.NoSQLPayloads = []string{
+			"{$ne: null}",
+			"{$gt: ''}",
+			"{$or: [1,1]}",
+			"{$where: 'sleep(100)'}",
+			"{$regex: '.*'}",
+			"{$exists: true}",
+			"{$in: [1,2,3]}",
+		}
+	}
+
 	return nil
 }
 
