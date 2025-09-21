@@ -537,7 +537,7 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ```bash
 # Fork the repository
-git clone https://github.com/your-username/API-Security-Scanner.git
+git clone https://github.com/elliotsecops/API-Security-Scanner.git
 cd API-Security-Scanner
 
 # Create a feature branch
