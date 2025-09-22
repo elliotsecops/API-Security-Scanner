@@ -59,6 +59,16 @@ Built with enterprise-grade performance and reliability in mind, the scanner use
 - **Historical Analytics**: Advanced trend analysis with time-series data and predictive insights
 - **Enterprise Logging**: Structured JSON logging with tenant isolation and audit trails
 
+### 🖥️ Web Interface (GUI)
+- **React-Based GUI**: Modern, responsive web interface built with React and Material-UI
+- **Real-Time Dashboard**: Live metrics, vulnerability tracking, and system health monitoring
+- **Interactive Visualizations**: Charts and graphs for security data analysis using Chart.js
+- **Scan Management**: Configure, run, and monitor security scans through intuitive web interface
+- **Results Analysis**: Detailed vulnerability reports with filtering, searching, and export capabilities
+- **Multi-Tenant Management**: Complete tenant administration through web interface
+- **Development & Production Modes**: Hot reload development and optimized production builds
+- **Single Server Deployment**: GUI served by Go backend, no separate web server required
+
 ### 🚀 Performance & Reliability
 - **Fast Execution**: Concurrent testing with configurable rate limiting
 - **Robust Error Handling**: Graceful handling of network timeouts and connection issues
@@ -142,6 +152,42 @@ docker run --rm -v $(pwd)/config.yaml:/app/config.yaml api-security-scanner
 # Show trend analysis
 ./api-security-scanner -trend -output json
 ```
+
+### GUI Usage
+
+**Development Mode:**
+```bash
+# Terminal 1: Start backend server
+./api-security-scanner -dashboard
+
+# Terminal 2: Start GUI development server
+cd gui
+npm install
+npm start
+# Access GUI at http://localhost:3000
+```
+
+**Production Mode:**
+```bash
+# Build GUI for production
+cd gui
+npm run build
+
+# Start server with integrated GUI
+./api-security-scanner -dashboard
+# Access GUI at http://localhost:8080
+```
+
+**GUI Features:**
+- **Dashboard**: Real-time metrics and system health
+- **Scanner**: Configure and run security scans
+- **Results**: View vulnerability reports and analysis
+- **Tenants**: Multi-tenant management interface
+- **Settings**: System configuration and preferences
+
+**Default Credentials:**
+- Username: `admin`
+- Password: `admin`
 
 ### Command Line Options
 

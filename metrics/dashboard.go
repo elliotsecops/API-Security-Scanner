@@ -3,10 +3,11 @@ package metrics
 import (
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
 	"time"
 	"sync"
+	"os"
+	"path/filepath"
 
 	"api-security-scanner/logging"
 )
@@ -15,18 +16,26 @@ import (
 type DashboardServer struct {
 	server     *http.Server
 	collector  *MetricsCollector
-	templates  *template.Template
+	guiPath    string
 	mutex      sync.RWMutex
 	clients    map[chan []byte]bool
 }
 
 // NewDashboardServer creates a new dashboard server
 func NewDashboardServer(collector *MetricsCollector, config Dashboard) *DashboardServer {
-	templates := template.Must(template.New("dashboard").Parse(dashboardHTML))
+	// Check if GUI build exists
+	guiPath := "./gui/build"
+	if _, err := os.Stat(guiPath); os.IsNotExist(err) {
+		// Fall back to legacy HTML dashboard if GUI not built
+		guiPath = ""
+		logging.Info("GUI build not found, using legacy dashboard", nil)
+	} else {
+		logging.Info("Using React GUI", map[string]interface{}{"path": guiPath})
+	}
 
 	server := &DashboardServer{
 		collector: collector,
-		templates: templates,
+		guiPath:   guiPath,
 		clients:   make(map[chan []byte]bool),
 	}
 
@@ -65,40 +74,102 @@ func (ds *DashboardServer) Stop() error {
 
 // ServeHTTP handles HTTP requests
 func (ds *DashboardServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Serve API endpoints
 	switch r.URL.Path {
-	case "/":
-		ds.serveDashboard(w, r)
 	case "/api/metrics":
 		ds.serveMetrics(w, r)
+		return
 	case "/api/system":
 		ds.serveSystemMetrics(w, r)
+		return
 	case "/api/tenant":
 		ds.serveTenantMetrics(w, r)
+		return
 	case "/api/export":
 		ds.serveExport(w, r)
+		return
+	case "/api/scans":
+		ds.serveScans(w, r)
+		return
+	case "/api/auth/login":
+		ds.serveAuthLogin(w, r)
+		return
+	case "/api/tenants":
+		ds.serveTenants(w, r)
+		return
 	case "/ws":
 		ds.handleWebSocket(w, r)
-	default:
+		return
+	}
+
+	// Serve GUI static files if available
+	if ds.guiPath != "" {
+		// Try to serve static file
+		filePath := filepath.Join(ds.guiPath, r.URL.Path)
+		if _, err := os.Stat(filePath); err == nil {
+			http.ServeFile(w, r, filePath)
+			return
+		}
+
+		// Try to serve index.html for SPA routing
+		if r.URL.Path != "/" && r.URL.Path != "/favicon.ico" {
+			indexFile := filepath.Join(ds.guiPath, "index.html")
+			if _, err := os.Stat(indexFile); err == nil {
+				http.ServeFile(w, r, indexFile)
+				return
+			}
+		}
+
+		// Serve index.html for root path
+		if r.URL.Path == "/" {
+			indexFile := filepath.Join(ds.guiPath, "index.html")
+			http.ServeFile(w, r, indexFile)
+			return
+		}
+	}
+
+	// Fall back to legacy dashboard if GUI not available
+	if r.URL.Path == "/" {
+		ds.serveDashboard(w, r)
+	} else {
 		http.NotFound(w, r)
 	}
 }
 
 // serveDashboard serves the main dashboard page
 func (ds *DashboardServer) serveDashboard(w http.ResponseWriter, r *http.Request) {
-	data := struct {
-		Title   string
-		Version string
-	}{
-		Title:   "API Security Scanner Dashboard",
-		Version: "4.0.0",
-	}
-
-	if err := ds.templates.ExecuteTemplate(w, "dashboard", data); err != nil {
-		logging.Error("Failed to render dashboard", map[string]interface{}{
-			"error": err.Error(),
-		})
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
+	// Simple HTML fallback if GUI not available
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head>
+    <title>API Security Scanner</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .card { background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 8px; }
+        .metric { font-size: 24px; font-weight: bold; color: #667eea; }
+    </style>
+</head>
+<body>
+    <h1>API Security Scanner Dashboard</h1>
+    <div class="card">
+        <div class="metric" id="totalScans">-</div>
+        <div>Total Scans</div>
+    </div>
+    <div class="card">
+        <div class="metric" id="activeTenants">-</div>
+        <div>Active Tenants</div>
+    </div>
+    <script>
+        fetch('/api/system')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('totalScans').textContent = data.total_scans || 0;
+                document.getElementById('activeTenants').textContent = data.active_tenants || 0;
+            });
+    </script>
+</body>
+</html>`))
 }
 
 // serveMetrics serves metrics data
@@ -229,6 +300,120 @@ func (ds *DashboardServer) parseTimeRange(rangeStr string) time.Duration {
 	default:
 		return 24 * time.Hour
 	}
+}
+
+// serveScans serves scan data for GUI
+func (ds *DashboardServer) serveScans(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Mock scan data for demonstration
+	scans := []map[string]interface{}{
+		{
+			"id":                    "scan_001",
+			"name":                  "Daily Security Scan",
+			"tenant_id":             "tenant-001",
+			"started_at":            "2024-01-15T10:00:00Z",
+			"completed_at":          "2024-01-15T10:15:00Z",
+			"average_score":         85.5,
+			"risk_level":            "medium",
+			"total_vulnerabilities": 12,
+			"critical_vulnerabilities": 2,
+			"high_vulnerabilities":     5,
+			"medium_vulnerabilities":   3,
+			"low_vulnerabilities":      2,
+			"duration":              900,
+			"endpoints": []map[string]interface{}{
+				{
+					"url":    "https://api.example.com/users",
+					"method": "GET",
+					"score":  90,
+					"vulnerabilities": 3,
+					"status": "completed",
+				},
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(scans, "", "  ")
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Write(data)
+}
+
+// serveAuthLogin handles authentication
+func (ds *DashboardServer) serveAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Simple mock authentication
+	var credentials struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&credentials); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Mock authentication (admin/admin)
+	if credentials.Username == "admin" && credentials.Password == "admin" {
+		response := map[string]interface{}{
+			"token": "mock-jwt-token",
+			"user": map[string]interface{}{
+				"id":       "1",
+				"username": "admin",
+				"role":     "administrator",
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	} else {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+	}
+}
+
+// serveTenants serves tenant data
+func (ds *DashboardServer) serveTenants(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Mock tenant data
+	tenants := []map[string]interface{}{
+		{
+			"id":          "tenant-001",
+			"name":        "Enterprise Corp",
+			"description": "Main enterprise tenant",
+			"is_active":   true,
+			"settings": map[string]interface{}{
+				"max_endpoints": 100,
+				"scan_frequency": "daily",
+			},
+		},
+		{
+			"id":          "tenant-002",
+			"name":        "Development Team",
+			"description": "Development and testing tenant",
+			"is_active":   true,
+			"settings": map[string]interface{}{
+				"max_endpoints": 50,
+				"scan_frequency": "hourly",
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(tenants, "", "  ")
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Write(data)
 }
 
 // Dashboard HTML template
