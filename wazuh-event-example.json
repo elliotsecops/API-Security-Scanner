@@ -1,0 +1,19 @@
+{
+  "timestamp": "2025-09-22T01:44:43Z",
+  "event_type": "vulnerability_detected",
+  "severity": "high",
+  "tenant_id": "security-team",
+  "source_ip": "192.168.1.100",
+  "target_url": "https://api.example.com/users",
+  "method": "GET",
+  "vulnerability": "SQL injection",
+  "description": "Potential SQL injection detected with payload: ' OR '1'='1",
+  "raw_data": {
+    "payload": "' OR '1'='1",
+    "response_status": 200,
+    "test_type": "injection",
+    "endpoint_score": 15,
+    "risk_level": "high"
+  },
+  "tags": ["sql_injection", "api_security", "attack", "critical"]
+}

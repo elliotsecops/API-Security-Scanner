@@ -1,28 +1,51 @@
-api_endpoints:
-  - url: "https://httpbin.org/status/200"
-    method: "GET"
-  - url: "https://httpbin.org/post"
-    method: "POST"
-    body: '{"test": "data"}'
+# API Security Scanner - Simple Test Configuration
+scanner:
+  api_endpoints:
+    - url: "https://httpbin.org/get"
+      method: "GET"
+    - url: "https://httpbin.org/post"
+      method: "POST"
+      body: '{"test":"data"}'
+
+  injection_payloads:
+    - "' OR '1'='1"
+    - "' OR 1=1--"
+
+  xss_payloads:
+    - "<script>alert('XSS')</script>"
+    - "<img src=x onerror=alert('XSS')>"
+
+  nosql_payloads:
+    - "{$ne: null}"
+    - "{$gt: ''}"
+
+  auth:
+    username: ""
+    password: ""
+
+  rate_limiting:
+    requests_per_second: 5
+    max_concurrent_requests: 2
+
+tenant:
+  id: "test"
+  name: "Test Tenant"
+  description: "Test tenant for validation"
+  is_active: true
+
+metrics:
+  enabled: true
+  port: 8080
+  update_interval: 30s
+  retention_days: 7
+
+siem:
+  enabled: false
+  type: "syslog"
 
 auth:
-  username: "testuser"
-  password: "testpass"
+  enabled: false
 
-injection_payloads:
-  - "' OR '1'='1"
-  - "'; DROP TABLE users;--"
-
-xss_payloads:
-  - "<script>alert('XSS')</script>"
-  - "'><script>alert('XSS')</script>"
-  - "<img src=x onerror=alert('XSS')>"
-  - "javascript:alert('XSS')"
-
-headers:
-  "User-Agent": "API-Security-Scanner/1.0"
-  "X-Scanner": "true"
-
-rate_limiting:
-  requests_per_second: 5
-  max_concurrent_requests: 3
+server:
+  port: 8081
+  host: "localhost"

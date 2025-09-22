@@ -1,65 +1,271 @@
-api_endpoints:
-  - url: "http://127.0.0.1:5000/basic-auth/admin/password"
-    method: "GET"
-  - url: "http://127.0.0.1:5000/post"
-    method: "POST"
-    body: '{"key": "value"}'
+# API Security Scanner - Phase 4 Enterprise Configuration
+# This configuration file demonstrates all Phase 4 enterprise features
 
-auth:
-  username: "admin"
-  password: "password"
+scanner:
+  # API endpoints to test
+  api_endpoints:
+    - url: "https://api.example.com/users"
+      method: "GET"
+    - url: "https://api.example.com/users"
+      method: "POST"
+      body: '{"name":"test","email":"test@example.com"}'
+    - url: "https://api.example.com/users/{id}"
+      method: "GET"
+    - url: "https://api.example.com/products"
+      method: "GET"
 
-injection_payloads:
-  - "' OR '1'='1"
-  - "'; DROP TABLE users;--"
+  # Injection test payloads
+  injection_payloads:
+    - "' OR '1'='1"
+    - "' OR 1=1--"
+    - "' UNION SELECT NULL--"
+    - "1; DROP TABLE users--"
+    - "' AND (SELECT COUNT(*) FROM information_schema.tables)>0--"
+    - "admin'--"
+    - "' OR SLEEP(10)--"
+    - "'; WAITFOR DELAY '0:0:10'--"
 
-xss_payloads:
-  - "<script>alert('XSS')</script>"
-  - "'><script>alert('XSS')</script>"
-  - "<img src=x onerror=alert('XSS')>"
-  - "javascript:alert('XSS')"
+  # XSS test payloads
+  xss_payloads:
+    - "<script>alert('XSS')</script>"
+    - "'>alert('XSS')<"
+    - "<img src=x onerror=alert('XSS')>"
+    - "javascript:alert('XSS')"
+    - "<svg onload=alert('XSS')>"
+    - "'\"><script>alert(String.fromCharCode(88,83,83))</script>"
 
-# Phase 3: NoSQL injection payloads
-nosql_payloads:
-  - "{$ne: null}"
-  - "{$gt: ''}"
-  - "{$or: [1,1]}"
-  - "{$where: 'sleep(100)'}"
-  - "{$regex: '.*'}"
-  - "{$exists: true}"
-  - "{$in: [1,2,3]}"
+  # NoSQL injection payloads
+  nosql_payloads:
+    - "{$ne: null}"
+    - "{$gt: ''}"
+    - "{$or: [1,1]}"
+    - "{$where: 'sleep(100)'}"
+    - "{$regex: '.*'}"
+    - "{$exists: true}"
+    - "{$in: [1,2,3]}"
 
-# Phase 3: OpenAPI specification path
-# openapi_spec: "path/to/openapi.yaml"
+  # Authentication configuration
+  auth:
+    enabled: false
+    username: ""
+    password: ""
 
-# Phase 3: API discovery configuration
-api_discovery:
+  # Rate limiting configuration
+  rate_limit:
+    enabled: true
+    requests_per_second: 10
+    burst_size: 5
+
+  # OpenAPI specification integration
+  openapi_spec: ""
+
+  # API discovery configuration
+  api_discovery:
+    enabled: true
+    max_depth: 3
+    follow_links: true
+    discover_params: true
+    user_agent: "API-Security-Scanner-Discovery/1.0"
+    exclude_patterns:
+      - "/static/"
+      - "/assets/"
+      - "/images/"
+      - ".css"
+      - ".js"
+      - ".png"
+      - ".jpg"
+
+  # Historical data configuration
+  historical_data:
+    enabled: true
+    storage_path: "./history"
+    retention_days: 30
+    compare_previous: true
+    trend_analysis: true
+
+# Tenant configuration for multi-tenant support
+tenant:
+  id: "default"
+  name: "Default Organization"
+  description: "Default tenant for single-tenant use"
+  is_active: true
+
+  settings:
+    # Data isolation configuration
+    data_isolation:
+      enabled: false
+      storage_path: "./history"
+      encryption_enabled: false
+      retention_days: 30
+
+    # Resource limits
+    resource_limits:
+      max_concurrent_scans: 10
+      max_endpoints_per_scan: 1000
+      max_storage_mb: 10240
+      scan_quota_monthly: 1000
+      rate_limit:
+        requests_per_second: 100
+        burst_size: 50
+
+    # Notification settings
+    notifications:
+      email:
+        enabled: false
+        smtp_host: ""
+        smtp_port: 587
+        username: ""
+        password: ""
+        from_email: ""
+        recipients: []
+      webhook:
+        enabled: false
+        url: ""
+        method: "POST"
+        headers: {}
+        secret: ""
+      slack:
+        enabled: false
+        webhook_url: ""
+        channel: "#security"
+        username: "api-scanner"
+
+    # Custom branding
+    custom_branding:
+      enabled: false
+      logo_url: ""
+      primary_color: "#667eea"
+      secondary_color: "#764ba2"
+      company_name: "My Company"
+      custom_footer: ""
+
+    # SIEM integration settings
+    siem_integration:
+      enabled: false
+      type: "syslog"  # syslog, splunk, elk, qradar, arcsight
+      config: {}
+      format: "json"  # json, cef, leef, syslog
+      endpoint_url: ""
+      auth_token: ""
+
+# Metrics and monitoring dashboard configuration
+metrics:
   enabled: true
-  max_depth: 3
-  follow_links: true
-  discover_params: true
-  user_agent: "API-Security-Scanner-Discovery/1.0"
-  exclude_patterns:
-    - "/static/"
-    - "/assets/"
-    - "/images/"
-    - ".css"
-    - ".js"
-    - ".png"
-    - ".jpg"
-
-# Phase 3: Historical data configuration
-historical_data:
-  enabled: true
-  storage_path: "./history"
+  port: 8080
+  update_interval: 30s
   retention_days: 30
-  compare_previous: true
-  trend_analysis: true
 
+  # Dashboard charts configuration
+  charts:
+    - title: "Vulnerability Overview"
+      type: "pie"
+      metrics: ["critical", "high", "medium", "low"]
+      time_range: "24h"
+      refresh: 30
+    - title: "Performance Metrics"
+      type: "line"
+      metrics: ["response_time", "throughput"]
+      time_range: "24h"
+      refresh: 30
+    - title: "Security Score Trend"
+      type: "line"
+      metrics: ["security_score"]
+      time_range: "7d"
+      refresh: 60
+    - title: "Resource Usage"
+      type: "gauge"
+      metrics: ["cpu_usage", "memory_usage"]
+      time_range: "1h"
+      refresh: 15
+
+  # Alert configuration
+  alerts:
+    - name: "High Vulnerability Count"
+      metric: "vulnerability_count"
+      condition: ">"
+      threshold: 10
+      duration: "5m"
+      notifications: ["email", "slack"]
+    - name: "High CPU Usage"
+      metric: "cpu_usage"
+      condition: ">"
+      threshold: 80
+      duration: "10m"
+      notifications: ["email"]
+    - name: "High Memory Usage"
+      metric: "memory_usage"
+      condition: ">"
+      threshold: 2000  # 2GB
+      duration: "10m"
+      notifications: ["email"]
+
+# SIEM integration configuration
+siem:
+  enabled: false
+  type: "syslog"  # syslog, splunk, elk, qradar, arcsight
+  config:
+    host: "localhost"
+    port: 514
+    facility: "local0"
+    severity: "info"
+  format: "json"  # json, cef, leef, syslog
+  endpoint_url: ""
+  auth_token: ""
+
+# Authentication configuration
+auth:
+  enabled: false
+  type: "basic"  # basic, bearer, api_key, oauth2, jwt, mutual_tls
+  config:
+    # Basic auth
+    username: ""
+    password: ""
+
+    # Bearer token
+    token: ""
+    expires_in: 3600
+
+    # API key
+    key: "X-API-Key"
+    value: ""
+    location: "header"  # header, query, cookie
+    prefix: ""
+
+    # OAuth2
+    grant_type: "client_credentials"  # client_credentials, authorization_code, password
+    client_id: ""
+    client_secret: ""
+    token_url: ""
+    auth_url: ""
+    redirect_url: ""
+    scopes: []
+
+    # JWT
+    algorithm: "HS256"  # HS256, HS384, HS512, RS256, RS384, RS512, ES256, ES384, ES512
+    secret: ""
+    private_key: ""
+    public_key: ""
+    key_file: ""
+    claims:
+      iss: ""
+      sub: ""
+      aud: ""
+      exp: 3600
+      nbf: 0
+      iat: 0
+      roles: []
+      custom: {}
+
+    # Mutual TLS
+    cert_file: ""
+    ca_file: ""
+
+# Server configuration
+server:
+  port: 8081
+  host: "localhost"
+
+# Request headers
 headers:
-  "User-Agent": "API-Security-Scanner/1.0"
+  "User-Agent": "API-Security-Scanner/4.0"
   "X-Scanner": "true"
-
-rate_limiting:
-  requests_per_second: 10
-  max_concurrent_requests: 5

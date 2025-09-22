@@ -1,0 +1,67 @@
+# API Security Scanner - Wazuh SIEM Integration Configuration
+scanner:
+  api_endpoints:
+    - url: "https://your-api.com/users"
+      method: "GET"
+    - url: "https://your-api.com/login"
+      method: "POST"
+      body: '{"username":"test","password":"test"}'
+
+  injection_payloads:
+    - "' OR '1'='1"
+    - "' OR 1=1--"
+    - "' UNION SELECT NULL--"
+    - "1; DROP TABLE users--"
+    - "admin'--"
+
+  xss_payloads:
+    - "<script>alert('XSS')</script>"
+    - "<img src=x onerror=alert('XSS')>"
+    - "javascript:alert('XSS')"
+    - "'\"><script>alert(String.fromCharCode(88,83,83))</script>"
+
+  nosql_payloads:
+    - "{$ne: null}"
+    - "{$gt: ''}"
+    - "{$or: [1,1]}"
+    - "{$where: 'sleep(100)'}"
+
+  auth:
+    username: ""
+    password: ""
+
+  rate_limiting:
+    requests_per_second: 10
+    max_concurrent_requests: 5
+
+tenant:
+  id: "security-team"
+  name: "Security Team"
+  description: "Security team tenant for Wazuh integration"
+  is_active: true
+
+metrics:
+  enabled: true
+  port: 8080
+  update_interval: 30s
+  retention_days: 30
+
+# Wazuh SIEM Integration Configuration
+siem:
+  enabled: true
+  type: "syslog"  # Use syslog for Wazuh integration
+  format: "json"   # JSON format for structured logging
+  endpoint_url: ""  # Not needed for syslog
+  auth_token: ""   # Not needed for syslog
+  config:
+    host: "localhost"    # Wazuh manager IP/hostname
+    port: 514           # Wazuh syslog port (default: 514)
+    facility: "local0"  # Syslog facility
+    severity: "info"    # Default severity level
+
+auth:
+  enabled: false
+
+server:
+  port: 8081
+  host: "localhost"

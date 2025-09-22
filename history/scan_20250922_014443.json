@@ -1,0 +1,105 @@
+{
+  "timestamp": "2025-09-22T01:44:43.354354506-04:00",
+  "results": [
+    {
+      "url": "https://httpbin.org/get",
+      "score": 40,
+      "results": [
+        {
+          "test_name": "Auth Test",
+          "passed": true,
+          "message": "Auth Test Passed"
+        },
+        {
+          "test_name": "HTTP Method Test",
+          "passed": true,
+          "message": "HTTP Method Test Passed"
+        },
+        {
+          "test_name": "NoSQL Injection Test",
+          "passed": true,
+          "message": "NoSQL Injection Test Passed"
+        },
+        {
+          "test_name": "XSS Test",
+          "passed": true,
+          "message": "XSS Test Passed"
+        },
+        {
+          "test_name": "Header Security Test",
+          "passed": false,
+          "message": "header security issues detected: Missing recommended security header: Content-Security-Policy (recommended value: policy directives); Missing recommended security header: X-Content-Type-Options (recommended value: nosniff); Missing recommended security header: X-Frame-Options (recommended value: DENY or SAMEORIGIN); Missing recommended security header: X-XSS-Protection (recommended value: 1; mode=block); Missing recommended security header: Strict-Transport-Security (recommended value: max-age=31536000; includeSubDomains); Insecure information disclosure header: Server (gunicorn/19.9.0); Insecure CORS policy: Access-Control-Allow-Origin set to wildcard (*)"
+        },
+        {
+          "test_name": "Auth Bypass Test",
+          "passed": false,
+          "message": "authentication bypass detected: endpoint accessible without authentication (status: 200)"
+        },
+        {
+          "test_name": "Parameter Tampering Test",
+          "passed": true,
+          "message": "Parameter Tampering Test Passed"
+        },
+        {
+          "test_name": "Injection Test",
+          "passed": true,
+          "message": "Injection Test Passed"
+        }
+      ]
+    },
+    {
+      "url": "https://httpbin.org/post",
+      "score": -10,
+      "results": [
+        {
+          "test_name": "NoSQL Injection Test",
+          "passed": true,
+          "message": "NoSQL Injection Test Passed"
+        },
+        {
+          "test_name": "XSS Test",
+          "passed": true,
+          "message": "XSS Test Passed"
+        },
+        {
+          "test_name": "Auth Test",
+          "passed": true,
+          "message": "Auth Test Passed"
+        },
+        {
+          "test_name": "HTTP Method Test",
+          "passed": true,
+          "message": "HTTP Method Test Passed"
+        },
+        {
+          "test_name": "Auth Bypass Test",
+          "passed": false,
+          "message": "authentication bypass detected: endpoint accessible without authentication (status: 200)"
+        },
+        {
+          "test_name": "Header Security Test",
+          "passed": false,
+          "message": "header security issues detected: Missing recommended security header: X-Content-Type-Options (recommended value: nosniff); Missing recommended security header: X-Frame-Options (recommended value: DENY or SAMEORIGIN); Missing recommended security header: X-XSS-Protection (recommended value: 1; mode=block); Missing recommended security header: Strict-Transport-Security (recommended value: max-age=31536000; includeSubDomains); Missing recommended security header: Content-Security-Policy (recommended value: policy directives); Insecure information disclosure header: Server (gunicorn/19.9.0); Insecure CORS policy: Access-Control-Allow-Origin set to wildcard (*)"
+        },
+        {
+          "test_name": "Injection Test",
+          "passed": false,
+          "message": "potential SQL injection detected with payload: ' OR '1'='1"
+        },
+        {
+          "test_name": "Parameter Tampering Test",
+          "passed": true,
+          "message": "Parameter Tampering Test Passed"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_endpoints": 2,
+    "average_score": 15,
+    "critical_vulnerabilities": 1,
+    "high_vulnerabilities": 2,
+    "medium_vulnerabilities": 0,
+    "low_vulnerabilities": 2
+  }
+}

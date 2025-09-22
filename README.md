@@ -1,10 +1,12 @@
-# API Security Scanner
+# API Security Scanner - Enterprise Edition
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.21+-blue.svg)](https://golang.org/dl/)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org/dl/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-green.svg)](https://github.com/elliotsecops/API-Security-Scanner)
+[![Version](https://img.shields.io/badge/Version-4.0.0-orange.svg)](https://github.com/elliotsecops/API-Security-Scanner)
+[![Enterprise](https://img.shields.io/badge/Enterprise-Ready-brightgreen.svg)](https://github.com/elliotsecops/API-Security-Scanner)
 
-A comprehensive, professional-grade API security testing tool written in Go. Designed to help developers and security professionals identify vulnerabilities in their REST APIs through automated security testing.
+A comprehensive, enterprise-grade API security testing platform written in Go. Designed for security teams, DevOps engineers, and organizations requiring automated security testing with SIEM integration, multi-tenant support, and advanced monitoring capabilities.
 
 ## 🎯 Overview
 
@@ -19,7 +21,7 @@ The API Security Scanner performs automated security assessments of API endpoint
 - **Cross-Site Scripting (XSS) Vulnerabilities**
 - **Authentication Bypass Testing**
 
-Built with performance and reliability in mind, the scanner uses concurrent execution to efficiently test multiple endpoints simultaneously while providing detailed security reports. The scanner now includes advanced features such as OpenAPI integration, automated API discovery, and historical trend analysis.
+Built with enterprise-grade performance and reliability in mind, the scanner uses concurrent execution to efficiently test multiple endpoints simultaneously while providing detailed security reports. The platform now includes comprehensive enterprise features such as multi-tenant architecture, SIEM integration, real-time monitoring dashboards, and advanced authentication methods.
 
 ## ✨ Key Features
 
@@ -45,6 +47,18 @@ Built with performance and reliability in mind, the scanner uses concurrent exec
 - **Vulnerability Tracking**: Track new and resolved vulnerabilities across scans with comparative analysis
 - **Multi-format Reports**: Generate reports in JSON, HTML, CSV, XML, and text formats with historical data
 
+### 🏢 Enterprise Features (Phase 4)
+- **Multi-Tenant Architecture**: Support for multiple organizations with complete data isolation and resource quotas
+- **SIEM Integration**: Native integration with Wazuh, Splunk, ELK, QRadar, and ArcSight for centralized security monitoring
+- **Advanced Authentication**: Support for OAuth2, JWT, API keys, bearer tokens, and mutual TLS authentication
+- **Real-Time Monitoring Dashboard**: Web-based dashboard with WebSocket support for live metrics and visualization
+- **Performance Metrics**: Comprehensive monitoring of CPU, memory, network usage, and scan performance
+- **Resource Management**: Configurable rate limits, concurrency controls, and resource quotas per tenant
+- **Alert Management**: Configurable alerts with email, Slack, and webhook notifications for critical findings
+- **Health Monitoring**: Built-in health checks and system monitoring with automatic failover
+- **Historical Analytics**: Advanced trend analysis with time-series data and predictive insights
+- **Enterprise Logging**: Structured JSON logging with tenant isolation and audit trails
+
 ### 🚀 Performance & Reliability
 - **Fast Execution**: Concurrent testing with configurable rate limiting
 - **Robust Error Handling**: Graceful handling of network timeouts and connection issues
@@ -66,7 +80,7 @@ Built with performance and reliability in mind, the scanner uses concurrent exec
 
 ### Prerequisites
 
-- **Go 1.21 or higher** - [Download Go](https://golang.org/dl/)
+- **Go 1.24 or higher** - [Download Go](https://golang.org/dl/)
 - **Git** - [Download Git](https://git-scm.com/downloads)
 
 The scanner will automatically download all required dependencies when building, including:
@@ -74,6 +88,9 @@ The scanner will automatically download all required dependencies when building,
 - `github.com/antchfx/htmlquery` - HTML parsing for API discovery
 - `github.com/antchfx/xpath` - XPath support for link extraction
 - `golang.org/x/net` - Extended networking libraries
+- `github.com/golang-jwt/jwt/v5` - JWT authentication support
+- `golang.org/x/oauth2` - OAuth2 authentication support
+- `gopkg.in/yaml.v3` - YAML configuration support
 
 ### Quick Install
 
@@ -104,11 +121,26 @@ docker run --rm -v $(pwd)/config.yaml:/app/config.yaml api-security-scanner
 ### Basic Usage
 
 ```bash
-# Run with default configuration
-./api-security-scanner
+# Show version information
+./api-security-scanner -version
+
+# Run security scan with default configuration
+./api-security-scanner -scan
 
 # Run with custom configuration file
-./api-security-scanner -config /path/to/custom-config.yaml
+./api-security-scanner -scan -config /path/to/custom-config.yaml
+
+# Start monitoring dashboard
+./api-security-scanner -dashboard
+
+# Run scan for specific tenant
+./api-security-scanner -scan -tenant "production"
+
+# Generate historical comparison
+./api-security-scanner -historical -output html
+
+# Show trend analysis
+./api-security-scanner -trend -output json
 ```
 
 ### Command Line Options
@@ -116,12 +148,13 @@ docker run --rm -v $(pwd)/config.yaml:/app/config.yaml api-security-scanner
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-config` | Path to configuration file | `config.yaml` |
-| `-output` | Output format (text, json, html, csv, xml) | `text` |
-| `-validate` | Validate configuration only, don't run tests | `false` |
-| `-log-level` | Log level (debug, info, warn, error) | `info` |
-| `-log-format` | Log format (text, json) | `text` |
-| `-timeout` | Request timeout in seconds | `10` |
-| `-verbose` | Enable verbose logging | `false` |
+| `-scan` | Run security scan immediately | `false` |
+| `-dashboard` | Start monitoring dashboard | `false` |
+| `-tenant` | Tenant ID for multi-tenant mode | `default` |
+| `-output` | Output format (json, html, text) | `json` |
+| `-historical` | Show historical comparison | `false` |
+| `-trend` | Show trend analysis | `false` |
+| `-version` | Show version information | `false` |
 
 ### Configuration
 
@@ -346,6 +379,56 @@ The scanner uses a 100-point scoring system:
 | 70-89 | Medium | Address within 30 days |
 | 50-69 | High | Address within 7 days |
 | 0-49 | Critical | Immediate action required |
+
+## 🔧 Enterprise Features
+
+### Multi-Tenant Architecture
+
+The Enterprise Edition supports multi-tenant deployments with complete data isolation:
+
+- **Tenant Management**: Create and manage multiple security teams/organizations
+- **Data Isolation**: Each tenant has isolated storage and configuration
+- **Resource Quotas**: Configure limits per tenant (requests, endpoints, concurrent scans)
+- **Custom Settings**: Tenant-specific notification settings and alert thresholds
+
+### SIEM Integration
+
+Send security events to major SIEM platforms for centralized monitoring:
+
+- **Wazuh**: Native syslog integration with custom decoders and rules
+- **Splunk**: HTTP Event Collector (HEC) integration
+- **ELK Stack**: Elasticsearch indexing with Kibana dashboards
+- **IBM QRadar**: LEA protocol and event forwarding
+- **ArcSight**: CEF format and SmartConnector integration
+
+### Advanced Authentication
+
+Support for enterprise authentication standards:
+
+- **OAuth 2.0**: Multiple grant types (client_credentials, authorization_code, password)
+- **JWT**: JSON Web Token authentication with various signing algorithms
+- **API Keys**: Custom header-based authentication
+- **Mutual TLS**: Certificate-based authentication
+- **Basic Auth**: Enhanced basic authentication with rate limiting
+
+### Performance Monitoring
+
+Real-time monitoring and metrics collection:
+
+- **System Metrics**: CPU, memory, network usage monitoring
+- **Security Metrics**: Vulnerability counts, scan success rates, threat trends
+- **Business Metrics**: API availability, response times, compliance status
+- **Dashboard**: Real-time WebSocket-based monitoring dashboard
+- **Health Checks**: Automated system health monitoring
+
+### Historical Analysis
+
+Comprehensive historical data analysis and trending:
+
+- **Trend Analysis**: Track vulnerability trends over time
+- **Comparative Analysis**: Compare current scan results with historical data
+- **Compliance Reporting**: Generate reports for regulatory compliance
+- **Automated Reporting**: Scheduled reports and executive summaries
 
 ## 🧪 Testing Methodology
 
@@ -609,6 +692,124 @@ historical_data:
   trend_analysis: true
 ```
 
+### Enterprise SIEM Integration
+
+```bash
+# Run with SIEM integration
+./api-security-scanner -config config-siem.yaml -scan
+```
+
+```yaml
+# Wazuh SIEM Configuration
+siem:
+  enabled: true
+  type: "syslog"
+  format: "json"
+  config:
+    host: "wazuh-manager.company.com"
+    port: 514
+    facility: "local0"
+    severity: "info"
+
+# Splunk SIEM Configuration
+siem:
+  enabled: true
+  type: "splunk"
+  format: "json"
+  endpoint_url: "https://splunk.company.com:8088/services/collector"
+  auth_token: "your-splunk-hec-token"
+```
+
+### Multi-Tenant Deployment
+
+```bash
+# Run scan for specific tenant
+./api-security-scanner -config enterprise-config.yaml -tenant "acme-corp" -scan
+
+# Start dashboard for specific tenant
+./api-security-scanner -config enterprise-config.yaml -tenant "acme-corp" -dashboard
+```
+
+```yaml
+# Enterprise multi-tenant configuration
+tenant:
+  id: "acme-corp"
+  name: "Acme Corporation"
+  description: "Enterprise security team"
+  is_active: true
+  settings:
+    resource_limits:
+      max_requests_per_day: 50000
+      max_concurrent_scans: 10
+      max_endpoints_per_scan: 200
+    data_isolation:
+      storage_path: "./data/acme-corp"
+      enabled: true
+    notification_settings:
+      email_notifications: true
+      webhook_url: "https://hooks.slack.com/services/xxx"
+      alert_threshold: "medium"
+```
+
+### Advanced Authentication
+
+```bash
+# Run with OAuth2 authentication
+./api-security-scanner -config config-oauth2.yaml -scan
+```
+
+```yaml
+# OAuth2 Configuration
+auth:
+  enabled: true
+  type: "oauth2"
+  config:
+    client_id: "security-scanner"
+    client_secret: "your-client-secret"
+    token_url: "https://auth.company.com/oauth/token"
+    scopes: ["read", "write"]
+    grant_type: "client_credentials"
+
+# JWT Configuration
+auth:
+  enabled: true
+  type: "jwt"
+  config:
+    secret_key: "your-jwt-secret"
+    signing_method: "HS256"
+    audience: "api-security-scanner"
+    issuer: "auth.company.com"
+```
+
+### Performance Monitoring
+
+```bash
+# Start monitoring dashboard
+./api-security-scanner -config config-metrics.yaml -dashboard
+
+# Run scan with metrics enabled
+./api-security-scanner -config config-metrics.yaml -scan
+```
+
+```yaml
+# Metrics Configuration
+metrics:
+  enabled: true
+  port: 8080
+  update_interval: 30s
+  retention_days: 30
+  dashboard:
+    enabled: true
+    port: 8081
+    host: "localhost"
+    update_interval: 5s
+    max_connections: 100
+  health_check:
+    enabled: true
+    interval: 30s
+    timeout: 10s
+```
+
 ## 🐛 Troubleshooting
 
 ### Common Issues
@@ -713,11 +914,18 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] API discovery and crawling
 - [x] Historical comparison and trending
 
-### Phase 4: Enterprise Features (Planned)
-- [ ] Multi-tenant support
-- [ ] SIEM integration
-- [ ] Advanced authentication methods
-- [ ] Performance metrics
+### Phase 4: Enterprise Features ✅
+- [x] Multi-tenant support with data isolation
+- [x] SIEM integration (Wazuh, Splunk, ELK, QRadar, ArcSight)
+- [x] Advanced authentication methods (OAuth2, JWT, API keys, Mutual TLS)
+- [x] Performance metrics and monitoring dashboard
+
+### Phase 5: Future Enhancements (Planned)
+- [ ] Machine learning-based vulnerability detection
+- [ ] API behavior analysis and anomaly detection
+- [ ] Cloud-native deployment options
+- [ ] Advanced compliance reporting
+- [ ] Integration with additional security tools
 
 ---
 
