@@ -1,4 +1,4 @@
-# API Security Scanner - Enterprise Edition
+# 🚀 API Security Scanner - Enterprise Edition
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org/dl/)
@@ -6,7 +6,35 @@
 [![Version](https://img.shields.io/badge/Version-4.0.0-orange.svg)](https://github.com/elliotsecops/API-Security-Scanner)
 [![Enterprise](https://img.shields.io/badge/Enterprise-Ready-brightgreen.svg)](https://github.com/elliotsecops/API-Security-Scanner)
 
-A comprehensive, enterprise-grade API security testing platform written in Go. Designed for security teams, DevOps engineers, and organizations requiring automated security testing with SIEM integration, multi-tenant support, and advanced monitoring capabilities.
+**⚡ One-Command Setup • Zero-Configuration GUI • Enterprise-Grade Security**
+
+A comprehensive, enterprise-grade API security testing platform with an intuitive web interface. Get started in seconds with automated installation and smart dependency management.
+
+## 🎯 Quick Start
+
+**Get running in 60 seconds:**
+
+```bash
+# Clone and install everything automatically
+git clone https://github.com/elliotsecops/API-Security-Scanner.git
+cd API-Security-Scanner
+./install.sh
+
+# Or just run it (if dependencies are installed)
+./run.sh dev
+```
+
+**Access the GUI:** http://localhost:3000 (development) or http://localhost:8080 (production)
+**Default Login:** `admin` / `admin`
+
+## 🌟 Why Choose This Scanner?
+
+- **🚀 One-Command Installation** - Automated setup with dependency management
+- **🎯 User-Friendly GUI** - Modern React interface with real-time dashboards
+- **🛡️ Comprehensive Testing** - SQLi, XSS, NoSQL injection, auth bypass, and more
+- **📊 Smart Reporting** - Risk assessment, trending, and multi-format exports
+- **🏢 Enterprise Ready** - Multi-tenant, SIEM integration, API discovery
+- **⚡ High Performance** - Concurrent testing with configurable rate limits
 
 ## 🎯 Overview
 
@@ -88,35 +116,45 @@ Built with enterprise-grade performance and reliability in mind, the scanner use
 
 ## 🛠️ Installation
 
-### Prerequisites
+### ⚡ Automated Installation (Recommended)
 
-- **Go 1.24 or higher** - [Download Go](https://golang.org/dl/)
-- **Git** - [Download Git](https://git-scm.com/downloads)
-
-The scanner will automatically download all required dependencies when building, including:
-- `github.com/getkin/kin-openapi` - OpenAPI specification support
-- `github.com/antchfx/htmlquery` - HTML parsing for API discovery
-- `github.com/antchfx/xpath` - XPath support for link extraction
-- `golang.org/x/net` - Extended networking libraries
-- `github.com/golang-jwt/jwt/v5` - JWT authentication support
-- `golang.org/x/oauth2` - OAuth2 authentication support
-- `gopkg.in/yaml.v3` - YAML configuration support
-
-### Quick Install
+**Zero-config setup - detects and installs everything automatically:**
 
 ```bash
-# Clone the repository
+# Full automated installation
 git clone https://github.com/elliotsecops/API-Security-Scanner.git
 cd API-Security-Scanner
-
-# Build the application
-go build -o api-security-scanner
-
-# Or run directly with Go
-go run main.go
+./install.sh
 ```
 
-### Docker Installation (Optional)
+The installation script will:
+- ✅ Detect your operating system
+- ✅ Install Go 1.24+ (if missing)
+- ✅ Install Node.js v16+ (if missing)
+- ✅ Install all GUI dependencies
+- ✅ Build the application
+- ✅ Create configuration files
+- ✅ Set up desktop shortcuts (Linux)
+
+### 🚀 Quick Start
+
+**Already have dependencies installed? Start immediately:**
+
+```bash
+git clone https://github.com/elliotsecops/API-Security-Scanner.git
+cd API-Security-Scanner
+./run.sh dev
+```
+
+### 📋 Prerequisites (Manual Install)
+
+If you prefer manual installation:
+
+- **Go 1.24 or higher** - [Download Go](https://golang.org/dl/)
+- **Node.js v16 or higher** - [Download Node.js](https://nodejs.org/)
+- **Git** - [Download Git](https://git-scm.com/downloads)
+
+### 🐳 Docker Installation
 
 ```bash
 # Build Docker image
@@ -126,9 +164,50 @@ docker build -t api-security-scanner .
 docker run --rm -v $(pwd)/config.yaml:/app/config.yaml api-security-scanner
 ```
 
+## 🎮 Running the Application
+
+### ⚡ Easy Commands
+
+```bash
+# Development mode (GUI + backend)
+./run.sh dev
+
+# Production mode (optimized single process)
+./run.sh prod
+
+# Backend only
+./run.sh backend
+
+# GUI development only
+./run.sh gui
+
+# Build everything
+./run.sh build
+
+# Stop all processes
+./run.sh stop
+
+# Show all commands
+./run.sh help
+```
+
 ## 🚀 Usage
 
-### Basic Usage
+### 🌐 Web Interface (GUI)
+
+**Access Points:**
+- **Development Mode**: http://localhost:3000
+- **Production Mode**: http://localhost:8080
+- **Default Login**: `admin` / `admin`
+
+**GUI Features:**
+- **📊 Dashboard**: Real-time metrics and system health
+- **🔍 Scanner**: Configure and run security scans
+- **📈 Results**: View vulnerability reports and analysis
+- **🏢 Tenants**: Multi-tenant management interface
+- **⚙️ Settings**: System configuration and preferences
+
+### 🖥️ Command Line Usage
 
 ```bash
 # Show version information
@@ -153,41 +232,47 @@ docker run --rm -v $(pwd)/config.yaml:/app/config.yaml api-security-scanner
 ./api-security-scanner -trend -output json
 ```
 
-### GUI Usage
+### 🔄 Development vs Production
 
-**Development Mode:**
-```bash
-# Terminal 1: Start backend server
-./api-security-scanner -dashboard
+| Mode | Development | Production |
+|------|-------------|------------|
+| **GUI URL** | http://localhost:3000 | http://localhost:8080 |
+| **Process** | 2 separate processes | 1 integrated process |
+| **Hot Reload** | ✅ Yes | ❌ No |
+| **Performance** | Development optimized | Production optimized |
+| **Best For** | Development & Testing | Regular Use |
 
-# Terminal 2: Start GUI development server
-cd gui
-npm install
-npm start
-# Access GUI at http://localhost:3000
-```
+## 🚨 First Steps
 
-**Production Mode:**
-```bash
-# Build GUI for production
-cd gui
-npm run build
+1. **🚀 Start the Application**
+   ```bash
+   ./run.sh dev  # Development mode
+   # or
+   ./run.sh prod # Production mode
+   ```
 
-# Start server with integrated GUI
-./api-security-scanner -dashboard
-# Access GUI at http://localhost:8080
-```
+2. **🌐 Open the GUI**
+   - Development: http://localhost:3000
+   - Production: http://localhost:8080
 
-**GUI Features:**
-- **Dashboard**: Real-time metrics and system health
-- **Scanner**: Configure and run security scans
-- **Results**: View vulnerability reports and analysis
-- **Tenants**: Multi-tenant management interface
-- **Settings**: System configuration and preferences
+3. **🔑 Login**
+   - Username: `admin`
+   - Password: `admin`
 
-**Default Credentials:**
-- Username: `admin`
-- Password: `admin`
+4. **⚙️ Configure APIs**
+   - Edit `config.yaml` to add your API endpoints
+   - Or use the GUI to configure endpoints
+
+5. **🔍 Run Security Scan**
+   - Use the GUI to configure and run scans
+   - View results and vulnerability reports
+
+## 📚 Quick Links
+
+- **🚀 Quick Start**: [QUICKSTART.md](QUICKSTART.md) - Get running in 60 seconds
+- **📖 User Guide**: [GUIDE.md](GUIDE.md) - Comprehensive usage guide
+- **⚙️ Configuration**: [CONFIGURATION.md](CONFIGURATION.md) - All configuration options
+- **🔧 Troubleshooting**: [QUICKSTART.md](QUICKSTART.md#troubleshooting) - Common issues and solutions
 
 ### Command Line Options
 
