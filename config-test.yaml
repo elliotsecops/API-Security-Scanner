@@ -1,51 +1,187 @@
-# API Security Scanner - Simple Test Configuration
-scanner:
-  api_endpoints:
-    - url: "https://httpbin.org/get"
-      method: "GET"
-    - url: "https://httpbin.org/post"
-      method: "POST"
-      body: '{"test":"data"}'
+# API Security Scanner - Test Configuration for Integration Assurance Plan
+# This configuration targets the OWASP Juice Shop test API
 
+scanner:
+  # API endpoints to test - targeting Juice Shop API
+  api_endpoints:
+    - url: "http://juice-shop:3000/rest/user/login"
+      method: "POST"
+      body: '{"email":"admin@juice-sho.p","password":"admin123"}'
+    - url: "http://juice-shop:3000/rest/products"
+      method: "GET"
+    - url: "http://juice-shop:3000/rest/products/1"
+      method: "GET"
+    - url: "http://juice-shop:3000/rest/products/search"
+      method: "GET"
+    - url: "http://juice-shop:3000/rest/user/whoami"
+      method: "GET"
+
+  # Injection test payloads
   injection_payloads:
     - "' OR '1'='1"
     - "' OR 1=1--"
+    - "' UNION SELECT NULL--"
+    - "1; DROP TABLE users--"
+    - "' AND (SELECT COUNT(*) FROM information_schema.tables)>0--"
+    - "admin'--"
+    - "' OR SLEEP(10)--"
+    - "'; WAITFOR DELAY '0:0:10'--"
 
+  # XSS test payloads
   xss_payloads:
     - "<script>alert('XSS')</script>"
+    - "'>alert('XSS')<"
     - "<img src=x onerror=alert('XSS')>"
+    - "javascript:alert('XSS')"
+    - "<svg onload=alert('XSS')>"
+    - "'\"><script>alert(String.fromCharCode(88,83,83))</script>"
 
+  # NoSQL injection payloads
   nosql_payloads:
     - "{$ne: null}"
     - "{$gt: ''}"
+    - "{$or: [1,1]}"
+    - "{$where: 'sleep(100)'}"
+    - "{$regex: '.*'}"
+    - "{$exists: true}"
+    - "{$in: [1,2,3]}"
 
+  # Authentication configuration (for endpoints that require auth)
   auth:
+    enabled: false
     username: ""
     password: ""
 
-  rate_limiting:
+  # Rate limiting configuration for tests
+  rate_limit:
+    enabled: true
     requests_per_second: 5
-    max_concurrent_requests: 2
+    burst_size: 2
 
+  # Historical data configuration
+  historical_data:
+    enabled: true
+    storage_path: "./history"
+    retention_days: 30
+    compare_previous: true
+    trend_analysis: true
+
+# Tenant configuration for multi-tenant support
 tenant:
-  id: "test"
-  name: "Test Tenant"
-  description: "Test tenant for validation"
+  id: "test-tenant"
+  name: "Integration Test Tenant"
+  description: "Tenant for integration assurance testing"
   is_active: true
+  settings:
+    data_isolation:
+      enabled: true
+      storage_path: "./data/test-tenant"
+      encryption_enabled: false
+      retention_days: 30
+    resource_limits:
+      max_concurrent_scans: 5
+      max_endpoints_per_scan: 100
+      max_storage_mb: 100
+      scan_quota_monthly: 100
+      rate_limit:
+        requests_per_second: 10
+        burst_size: 5
+    notifications:
+      email:
+        enabled: false
+        smtp_host: ""
+        smtp_port: 587
+        username: ""
+        password: ""
+        from_email: ""
+        recipients: []
+      webhook:
+        enabled: false
+        url: ""
+        method: "POST"
+        headers: {}
+        secret: ""
+      slack:
+        enabled: false
+        webhook_url: ""
+        channel: "#security"
+        username: "api-scanner"
 
+# Metrics and monitoring dashboard configuration
 metrics:
   enabled: true
   port: 8080
   update_interval: 30s
-  retention_days: 7
+  retention_days: 30
+  charts:
+    - title: "Vulnerability Overview"
+      type: "pie"
+      metrics: ["critical", "high", "medium", "low"]
+      time_range: "24h"
+      refresh: 30
+    - title: "Performance Metrics"
+      type: "line"
+      metrics: ["response_time", "throughput"]
+      time_range: "24h"
+      refresh: 30
+    - title: "Security Score Trend"
+      type: "line"
+      metrics: ["security_score"]
+      time_range: "7d"
+      refresh: 60
+    - title: "Resource Usage"
+      type: "gauge"
+      metrics: ["cpu_usage", "memory_usage"]
+      time_range: "1h"
+      refresh: 15
+  alerts:
+    - name: "High Vulnerability Count"
+      metric: "vulnerability_count"
+      condition: ">"
+      threshold: 10
+      duration: "5m"
+      notifications: ["email", "slack"]
+    - name: "High CPU Usage"
+      metric: "cpu_usage"
+      condition: ">"
+      threshold: 80
+      duration: "10m"
+      notifications: ["email"]
+    - name: "High Memory Usage"
+      metric: "memory_usage"
+      condition: ">"
+      threshold: 2000
+      duration: "10m"
+      notifications: ["email"]
 
+# SIEM integration configuration
 siem:
   enabled: false
   type: "syslog"
+  config:
+    host: "localhost"
+    port: 514
+    facility: "local0"
+    severity: "info"
+  format: "json"
+  endpoint_url: ""
+  auth_token: ""
 
+# Authentication configuration
 auth:
   enabled: false
+  type: "basic"
+  config:
+    username: ""
+    password: ""
+    # This is a flat mapping as expected by the main config struct
 
+# Server configuration
 server:
   port: 8081
-  host: "localhost"
+  host: "0.0.0.0"
+
+# Request headers
+headers:
+  "User-Agent": "API-Security-Scanner/4.0"
+  "X-Scanner": "true"

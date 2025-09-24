@@ -1,15 +1,24 @@
 # 🚀 API Security Scanner - Quick Start Guide
 
-This guide will get you up and running in minutes with the optimized workflow.
+This guide will get you up and running in minutes with the optimized workflow. The easiest way to start is with the integrated Docker Compose setup that includes both the scanner and a vulnerable test API.
 
-## ⚡ One-Command Setup
+## ⚡ One-Command Setup with Complete Test Environment
 
-### Option 1: Full Installation (Recommended)
+### Option 1: Docker Compose (Recommended for Testing)
 ```bash
-# Clone and install everything automatically
+# Clone and start the complete environment in seconds
 git clone https://github.com/elliotsecops/API-Security-Scanner.git
 cd API-Security-Scanner
-./install.sh
+
+# Start both the scanner and OWASP Juice Shop (vulnerable test API)
+docker-compose up -d
+
+# Access the dashboard at: http://localhost:8080
+# The API runs on: http://localhost:8081
+# The test API runs on: http://localhost:3000
+
+# Run a test scan:
+docker exec api-security-scanner ./api-security-scanner -config config-test.yaml -scan
 ```
 
 ### Option 2: Quick Start (Dependencies Already Installed)

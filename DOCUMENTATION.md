@@ -33,13 +33,34 @@ The API Security Scanner Enterprise Edition is a comprehensive security testing 
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.24 or later (for building from source)
+- Docker and Docker Compose (for containerized deployment)
 - YAML configuration files
 - Network access to target APIs
 - (Optional) SIEM platform access
 - (Optional) Authentication credentials
 
-### Quick Install
+### Quick Install with Docker (Recommended for Testing)
+
+The easiest way to get started is using the provided Docker Compose setup that includes both the scanner and a test API (OWASP Juice Shop):
+
+```bash
+# Clone the repository
+git clone https://github.com/elliotsecops/API-Security-Scanner.git
+cd API-Security-Scanner
+
+# Build and start the complete test environment
+docker-compose up -d
+
+# Verify both containers are running
+docker ps
+
+# Access the dashboard at: http://localhost:8080
+# Run a test scan:
+docker exec api-security-scanner ./api-security-scanner -config config-test.yaml -scan
+```
+
+### Build from Source (For Development)
 
 ```bash
 # Clone the repository
@@ -49,6 +70,12 @@ cd API-Security-Scanner
 # Install dependencies
 go mod tidy
 
+# Install enterprise dependencies
+go get github.com/golang-jwt/jwt/v5
+go get golang.org/x/oauth2
+go get github.com/sirupsen/logrus
+go get github.com/gorilla/websocket
+
 # Build the application
 go build -o api-security-scanner
 
@@ -56,14 +83,17 @@ go build -o api-security-scanner
 ./api-security-scanner -version
 ```
 
-### Enterprise Dependencies
+### Docker Manual Build
 
 ```bash
-# Install additional dependencies for enterprise features
-go get github.com/golang-jwt/jwt/v5
-go get golang.org/x/oauth2
-go get github.com/sirupsen/logrus
-go get github.com/gorilla/websocket
+# Build Docker image
+docker build -t api-security-scanner .
+
+# Run in dashboard mode
+docker run -d --name api-security-scanner -p 8080-8081:8080-8081 \
+  -v $(pwd)/config-test.yaml:/app/config-test.yaml \
+  -v $(pwd)/reports:/app/reports \
+  api-security-scanner ./api-security-scanner -config config-test.yaml -dashboard
 ```
 
 ## ⚙️ Configuration

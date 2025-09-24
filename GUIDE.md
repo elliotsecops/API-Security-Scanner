@@ -71,6 +71,24 @@ npm run build
 - Single server deployment: `http://localhost:8080`
 - No separate GUI server required
 
+### Docker Compose Integration
+
+The application includes a complete integration test environment that serves as a reference deployment:
+
+```bash
+# Start the complete environment (scanner + test API)
+docker-compose up -d
+
+# Access the dashboard at: http://localhost:8080
+# The API server runs on: http://localhost:8081
+# The test API (Juice Shop) runs on: http://localhost:3000
+
+# Run scans using the docker exec command:
+docker exec api-security-scanner ./api-security-scanner -config config-test.yaml -scan
+```
+
+The dashboard is confirmed to be accessible on port 8080 as demonstrated by the successful integration testing with OWASP Juice Shop.
+
 ## GUI Architecture
 
 ### Component Structure

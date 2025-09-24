@@ -154,15 +154,7 @@ If you prefer manual installation:
 - **Node.js v16 or higher** - [Download Node.js](https://nodejs.org/)
 - **Git** - [Download Git](https://git-scm.com/downloads)
 
-### 🐳 Docker Installation
-
-```bash
-# Build Docker image
-docker build -t api-security-scanner .
-
-# Run with Docker
-docker run --rm -v $(pwd)/config.yaml:/app/config.yaml api-security-scanner
-```
+### 🐳 Docker Installation and Integration Testing\n\nThe project includes a complete integration test environment with OWASP Juice Shop, allowing you to test the scanner in a controlled environment with known vulnerabilities.\n\n### Quick Start with Complete Environment\n\n```bash\n# Clone the repository\ngit clone https://github.com/elliotsecops/API-Security-Scanner.git\ncd API-Security-Scanner\n\n# Build and start both the scanner and the test API (OWASP Juice Shop)\ndocker-compose up -d\n\n# Verify both containers are running\ndocker ps\n\n# The dashboard is accessible at: http://localhost:8080\n# The API is available on port: 8081 (for API calls)\n# The test API (Juice Shop) is available on port: 3000\n```\n\n### Run a Test Scan\n\nOnce both containers are running, you can execute a security scan:\n\n```bash\n# Run a test scan against OWASP Juice Shop\ndocker exec api-security-scanner ./api-security-scanner -config config-test.yaml -scan\n\n# Or run the scanner in dashboard mode\ndocker exec api-security-scanner ./api-security-scanner -config config-test.yaml -dashboard\n```\n\n### Manual Docker Build\n\n```bash\n# Build Docker image\ndocker build -t api-security-scanner .\n\n# Run with test configuration\ndocker run -d --name api-security-scanner -p 8080-8081:8080-8081 \\\n  -v $(pwd)/config-test.yaml:/app/config-test.yaml \\\n  -v $(pwd)/reports:/app/reports \\\n  api-security-scanner ./api-security-scanner -config config-test.yaml -dashboard\n```
 
 ## 🎮 Running the Application
 

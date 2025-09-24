@@ -269,3 +269,14 @@ server:
 headers:
   "User-Agent": "API-Security-Scanner/4.0"
   "X-Scanner": "true"
+    ca_file: ""
+
+# Server configuration
+server:
+  port: 8081
+  host: "localhost"
+
+# Request headers
+headers:
+  "User-Agent": "API-Security-Scanner/4.0"
+  "X-Scanner": "true"

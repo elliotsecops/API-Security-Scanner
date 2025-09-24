@@ -121,15 +121,15 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN go build -o api-security-scanner
+RUN go build -o api-security-scanner .
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 
 COPY --from=builder /app/api-security-scanner .
-COPY --from=builder /app/config.yaml .
-COPY --from=builder /app/static ./static
+COPY --from=builder /app/config.yaml ./config.yaml
+COPY --from=builder /app/config-test.yaml ./config-test.yaml
 
 EXPOSE 8080 8081
 
@@ -142,57 +142,70 @@ CMD ["./api-security-scanner"]
 # Build Docker image
 docker build -t api-security-scanner .
 
-# Run container
-docker run -p 8081:8081 -p 8080:8080 api-security-scanner
-
-# Run with volume for configuration
-docker run -p 8081:8081 -p 8080:8080 \
-  -v $(pwd)/config.yaml:/app/config.yaml \
-  api-security-scanner
+# Run container with test configuration
+docker run -d --name api-security-scanner -p 8080-8081:8080-8081 \
+  -v $(pwd)/config-test.yaml:/app/config-test.yaml \
+  -v $(pwd)/reports:/app/reports \
+  api-security-scanner ./api-security-scanner -config config-test.yaml -dashboard
 ```
 
-#### Docker Compose
+#### Docker Compose for Integration Testing
+
+The repository includes a complete integration test environment with OWASP Juice Shop:
 
 ```yaml
 version: '3.8'
 
 services:
+  # Vulnerable test API - OWASP Juice Shop
+  juice-shop:
+    image: bkimminich/juice-shop:latest
+    container_name: juice-shop
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3000/rest/admin/application-version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # API Security Scanner
   api-security-scanner:
     build: .
+    container_name: api-security-scanner
+    depends_on:
+      juice-shop:
+        condition: service_healthy
     ports:
-      - "8081:8081"
       - "8080:8080"
+      - "8081:8081"
     volumes:
-      - ./config.yaml:/app/config.yaml
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - ./config-test.yaml:/app/config.yaml
+      - ./reports:/app/reports
     environment:
       - SERVER_PORT=8081
       - METRICS_PORT=8080
-    restart: unless-stopped
+    command: ["./api-security-scanner", "-config", "config.yaml", "-dashboard"]
+```
 
-  # Optional: PostgreSQL for data persistence
-  postgres:
-    image: postgres:13
-    environment:
-      - POSTGRES_DB=api_scanner
-      - POSTGRES_USER=scanner
-      - POSTGRES_PASSWORD=your-password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
+To run the complete test environment:
 
-  # Optional: Redis for caching
-  redis:
-    image: redis:6-alpine
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
+```bash
+# Start both services (Juice Shop and API Security Scanner)
+docker-compose up -d
 
-volumes:
-  postgres_data:
+# Verify both containers are running
+docker ps
+
+# Access the dashboard at http://localhost:8080
+# Run a test scan:
+docker exec api-security-scanner ./api-security-scanner -config config-test.yaml -scan
+
+# View scan results in the history directory
+docker exec api-security-scanner ls -la history/
 ```
 
 ### Method 4: Package Manager (Linux)
