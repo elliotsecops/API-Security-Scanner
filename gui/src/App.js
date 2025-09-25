@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { AppBar, Toolbar, Typography, Box, Drawer, List, ListItem, ListItemIcon, ListItemText, IconButton, Badge, Container } from '@mui/material';
+import { AppBar, Toolbar, Typography, Box, Drawer, List, ListItem, ListItemIcon, ListItemText, IconButton, Container } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
   Security as SecurityIcon,
@@ -19,21 +19,56 @@ import Tenants from './components/Tenants';
 import Settings from './components/Settings';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Login';
-import WebSocketService from './services/WebSocketService';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { WebSocketProvider } from './contexts/WebSocketContext';
+import { MetricsProvider } from './contexts/MetricsContext';
 
 const theme = createTheme({
   palette: {
     mode: 'dark',
     primary: {
-      main: '#1976d2',
+      main: '#6366F1',
+      contrastText: '#ffffff',
     },
     secondary: {
-      main: '#dc004e',
+      main: '#8B5CF6',
     },
     background: {
-      default: '#121212',
-      paper: '#1e1e1e',
+      default: '#0B1120',
+      paper: '#111827',
+    },
+    text: {
+      primary: '#E0E7FF',
+      secondary: '#A5B4FC',
+    },
+  },
+  typography: {
+    fontFamily: 'Inter, Roboto, Helvetica, Arial, sans-serif',
+    h4: {
+      fontWeight: 600,
+    },
+    h6: {
+      fontWeight: 600,
+    },
+  },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: 10,
+          textTransform: 'none',
+          fontWeight: 600,
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08))',
+          borderRadius: 16,
+          border: '1px solid rgba(99,102,241,0.15)',
+        },
+      },
     },
   },
 });
@@ -168,9 +203,13 @@ function App() {
     <ThemeProvider theme={theme}>
       <AuthProvider>
         <NotificationProvider>
-          <Router>
-            <AppContent />
-          </Router>
+          <WebSocketProvider>
+            <MetricsProvider>
+              <Router>
+                <AppContent />
+              </Router>
+            </MetricsProvider>
+          </WebSocketProvider>
         </NotificationProvider>
       </AuthProvider>
     </ThemeProvider>

@@ -7,7 +7,6 @@ import {
   Button,
   Box,
   Alert,
-  CardMedia,
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -41,13 +40,13 @@ const Login = () => {
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      }}
-    >
-      <Card sx={{ width: 400, boxShadow: 3 }}>
-        <CardContent sx={{ p: 4 }}>
+    background: 'linear-gradient(135deg, #1D1B4F 0%, #0F172A 100%)',
+  }}
+>
+      <Card sx={{ width: 420, boxShadow: '0 20px 45px rgba(17, 24, 39, 0.45)', borderRadius: 4 }}>
+        <CardContent sx={{ p: 5 }}>
           <Box textAlign="center" mb={3}>
-            <Typography variant="h4" gutterBottom>
+            <Typography variant="h4" gutterBottom sx={{ fontWeight: 700 }}>
               API Security Scanner
             </Typography>
             <Typography variant="body2" color="textSecondary">
@@ -87,16 +86,15 @@ const Login = () => {
               type="submit"
               fullWidth
               variant="contained"
-              sx={{ mt: 3, mb: 2 }}
+              sx={{ mt: 4, mb: 2, py: 1.2 }}
               disabled={loading}
             >
               {loading ? 'Signing In...' : 'Sign In'}
             </Button>
           </form>
-
-          <Box textAlign="center" mt={2}>
+          <Box textAlign="center" mt={3}>
             <Typography variant="body2" color="textSecondary">
-              Default credentials: admin/admin
+              Tip: Update your dashboard credentials from the Settings -> Security tab once signed in.
             </Typography>
           </Box>
         </CardContent>

@@ -6,8 +6,6 @@ import {
   Typography,
   Box,
   LinearProgress,
-  Button,
-  Chip,
   Alert,
   List,
   ListItem,
@@ -21,7 +19,6 @@ import {
   Warning,
   CheckCircle,
   Error,
-  Schedule,
   Speed,
 } from '@mui/icons-material';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
@@ -131,28 +128,29 @@ const Dashboard = () => {
       title: 'Active Scans',
       value: metrics?.scanner?.active_scans || 0,
       icon: <Security sx={{ fontSize: 40 }} />,
-      color: '#1976d2',
-      trend: 'up',
+      bg: 'linear-gradient(135deg, rgba(99,102,241,0.25), rgba(129,140,248,0.08))',
+      border: '1px solid rgba(99,102,241,0.25)',
     },
     {
       title: 'Vulnerabilities Found',
       value: metrics?.security?.vulnerabilities_found || 0,
       icon: <Warning sx={{ fontSize: 40 }} />,
-      color: '#dc004e',
-      trend: 'up',
+      bg: 'linear-gradient(135deg, rgba(236,72,153,0.22), rgba(129,140,248,0.08))',
+      border: '1px solid rgba(236,72,153,0.25)',
     },
     {
       title: 'System Health',
       value: systemHealth.status === 'healthy' ? 'Healthy' : 'Issues',
       icon: systemHealth.status === 'healthy' ? <CheckCircle sx={{ fontSize: 40 }} /> : <Error sx={{ fontSize: 40 }} />,
-      color: systemHealth.status === 'healthy' ? '#4caf50' : '#f44336',
+      bg: 'linear-gradient(135deg, rgba(16,185,129,0.22), rgba(99,102,241,0.08))',
+      border: '1px solid rgba(16,185,129,0.24)',
     },
     {
       title: 'Response Time',
       value: `${metrics?.scanner?.average_response_time || 0}ms`,
       icon: <Speed sx={{ fontSize: 40 }} />,
-      color: '#ff9800',
-      trend: 'down',
+      bg: 'linear-gradient(135deg, rgba(251,191,36,0.22), rgba(99,102,241,0.08))',
+      border: '1px solid rgba(251,191,36,0.24)',
     },
   ];
 
@@ -184,7 +182,16 @@ const Dashboard = () => {
       </Typography>
 
       {/* Connection Status */}
-      <Alert severity={connectionStatus === 'connected' ? 'success' : 'warning'} sx={{ mb: 2 }}>
+      <Alert
+        severity={connectionStatus === 'connected' ? 'success' : 'warning'}
+        sx={{
+          mb: 2,
+          background: connectionStatus === 'connected'
+            ? 'linear-gradient(135deg, rgba(52,211,153,0.18), rgba(16,185,129,0.12))'
+            : 'linear-gradient(135deg, rgba(251,191,36,0.20), rgba(234,179,8,0.12))',
+          border: '1px solid rgba(99,102,241,0.12)',
+        }}
+      >
         WebSocket Status: {connectionStatus}
       </Alert>
 
@@ -192,7 +199,14 @@ const Dashboard = () => {
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {statsCards.map((stat, index) => (
           <Grid item xs={12} sm={6} md={3} key={index}>
-            <Card sx={{ height: '100%' }}>
+            <Card
+              sx={{
+                height: '100%',
+                background: stat.bg,
+                border: stat.border,
+                boxShadow: '0 16px 30px rgba(15,23,42,0.35)',
+              }}
+            >
               <CardContent>
                 <Box display="flex" justifyContent="space-between" alignItems="center">
                   <Box>

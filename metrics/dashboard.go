@@ -4,21 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
-	"sync"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
+
+	"golang.org/x/net/websocket"
 
 	"api-security-scanner/logging"
 )
 
 // DashboardServer serves the monitoring dashboard
 type DashboardServer struct {
-	server     *http.Server
-	collector  *MetricsCollector
-	guiPath    string
-	mutex      sync.RWMutex
-	clients    map[chan []byte]bool
+	server      *http.Server
+	collector   *MetricsCollector
+	guiPath     string
+	mutex       sync.RWMutex
+	clients     map[chan []byte]bool
+	credentials *CredentialManager
 }
 
 // NewDashboardServer creates a new dashboard server
@@ -33,10 +36,25 @@ func NewDashboardServer(collector *MetricsCollector, config Dashboard) *Dashboar
 		logging.Info("Using React GUI", map[string]interface{}{"path": guiPath})
 	}
 
+	credManager, err := NewCredentialManager("")
+	if err != nil {
+		logging.Error("Failed to initialize dashboard credential store", map[string]interface{}{
+			"error": err.Error(),
+		})
+		if fallback, fallbackErr := NewInMemoryCredentialManager(); fallbackErr == nil {
+			credManager = fallback
+		} else {
+			logging.Error("Fallback credential store failed", map[string]interface{}{
+				"error": fallbackErr.Error(),
+			})
+		}
+	}
+
 	server := &DashboardServer{
-		collector: collector,
-		guiPath:   guiPath,
-		clients:   make(map[chan []byte]bool),
+		collector:   collector,
+		guiPath:     guiPath,
+		clients:     make(map[chan []byte]bool),
+		credentials: credManager,
 	}
 
 	server.server = &http.Server{
@@ -79,6 +97,9 @@ func (ds *DashboardServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/metrics":
 		ds.serveMetrics(w, r)
 		return
+	case "/api/metrics/websocket":
+		ds.handleWebSocket(w, r)
+		return
 	case "/api/system":
 		ds.serveSystemMetrics(w, r)
 		return
@@ -93,6 +114,9 @@ func (ds *DashboardServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/api/auth/login":
 		ds.serveAuthLogin(w, r)
+		return
+	case "/api/auth/change-password":
+		ds.serveAuthUpdate(w, r)
 		return
 	case "/api/tenants":
 		ds.serveTenants(w, r)
@@ -280,10 +304,60 @@ func (ds *DashboardServer) serveExport(w http.ResponseWriter, r *http.Request) {
 
 // handleWebSocket handles WebSocket connections for real-time updates
 func (ds *DashboardServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// WebSocket implementation would go here
-	// This is a simplified version for demonstration
-	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte("WebSocket not implemented yet"))
+	tenantID := r.URL.Query().Get("tenant")
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	timeRange := ds.parseTimeRange(r.URL.Query().Get("range"))
+	if timeRange <= 0 {
+		timeRange = 24 * time.Hour
+	}
+
+	updateInterval := ds.collector.config.UpdateInterval
+	if updateInterval <= 0 {
+		updateInterval = 30 * time.Second
+	}
+
+	sender := websocket.Handler(func(conn *websocket.Conn) {
+		defer conn.Close()
+
+		sendSnapshot := func() error {
+			payload := map[string]interface{}{
+				"type":      "metrics",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"tenant_id": tenantID,
+				"data": map[string]interface{}{
+					"tenant": ds.collector.GetTenantMetrics(tenantID, timeRange),
+					"system": ds.collector.GetSystemMetrics(timeRange),
+				},
+			}
+
+			if err := websocket.JSON.Send(conn, payload); err != nil {
+				logging.Error("WebSocket send error", map[string]interface{}{
+					"error": err.Error(),
+				})
+				return err
+			}
+
+			return nil
+		}
+
+		if err := sendSnapshot(); err != nil {
+			return
+		}
+
+		ticker := time.NewTicker(updateInterval)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := sendSnapshot(); err != nil {
+				return
+			}
+		}
+	})
+
+	sender.ServeHTTP(w, r)
 }
 
 // parseTimeRange parses time range from string
@@ -309,26 +383,26 @@ func (ds *DashboardServer) serveScans(w http.ResponseWriter, r *http.Request) {
 	// Mock scan data for demonstration
 	scans := []map[string]interface{}{
 		{
-			"id":                    "scan_001",
-			"name":                  "Daily Security Scan",
-			"tenant_id":             "tenant-001",
-			"started_at":            "2024-01-15T10:00:00Z",
-			"completed_at":          "2024-01-15T10:15:00Z",
-			"average_score":         85.5,
-			"risk_level":            "medium",
-			"total_vulnerabilities": 12,
+			"id":                       "scan_001",
+			"name":                     "Daily Security Scan",
+			"tenant_id":                "tenant-001",
+			"started_at":               "2024-01-15T10:00:00Z",
+			"completed_at":             "2024-01-15T10:15:00Z",
+			"average_score":            85.5,
+			"risk_level":               "medium",
+			"total_vulnerabilities":    12,
 			"critical_vulnerabilities": 2,
 			"high_vulnerabilities":     5,
 			"medium_vulnerabilities":   3,
 			"low_vulnerabilities":      2,
-			"duration":              900,
+			"duration":                 900,
 			"endpoints": []map[string]interface{}{
 				{
-					"url":    "https://api.example.com/users",
-					"method": "GET",
-					"score":  90,
+					"url":             "https://api.example.com/users",
+					"method":          "GET",
+					"score":           90,
 					"vulnerabilities": 3,
-					"status": "completed",
+					"status":          "completed",
 				},
 			},
 		},
@@ -350,7 +424,11 @@ func (ds *DashboardServer) serveAuthLogin(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Simple mock authentication
+	if ds.credentials == nil {
+		http.Error(w, "Credential store unavailable", http.StatusInternalServerError)
+		return
+	}
+
 	var credentials struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -361,22 +439,75 @@ func (ds *DashboardServer) serveAuthLogin(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Mock authentication (admin/admin)
-	if credentials.Username == "admin" && credentials.Password == "admin" {
-		response := map[string]interface{}{
-			"token": "mock-jwt-token",
-			"user": map[string]interface{}{
-				"id":       "1",
-				"username": "admin",
-				"role":     "administrator",
-			},
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
-	} else {
+	if !ds.credentials.Authenticate(credentials.Username, credentials.Password) {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
 	}
+
+	response := map[string]interface{}{
+		"token": fmt.Sprintf("mock-jwt-token-%d", time.Now().Unix()),
+		"user": map[string]interface{}{
+			"id":       "1",
+			"username": ds.credentials.Username(),
+			"role":     "administrator",
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// serveAuthUpdate allows rotating the dashboard credentials.
+func (ds *DashboardServer) serveAuthUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" && r.Method != "PUT" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ds.credentials == nil {
+		http.Error(w, "Credential store unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	var payload struct {
+		CurrentUsername string `json:"current_username"`
+		CurrentPassword string `json:"current_password"`
+		NewUsername     string `json:"new_username"`
+		NewPassword     string `json:"new_password"`
+		ConfirmPassword string `json:"confirm_password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if payload.NewPassword != payload.ConfirmPassword {
+		http.Error(w, "New password confirmation does not match", http.StatusBadRequest)
+		return
+	}
+
+	if !ds.credentials.Authenticate(payload.CurrentUsername, payload.CurrentPassword) {
+		http.Error(w, "Current credentials are incorrect", http.StatusUnauthorized)
+		return
+	}
+
+	if err := ds.credentials.Update(payload.NewUsername, payload.NewPassword); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	logging.Info("Dashboard credentials updated", map[string]interface{}{
+		"username":   ds.credentials.Username(),
+		"updated_at": ds.credentials.LastUpdated().Format(time.RFC3339),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":    "Credentials updated successfully",
+		"username":   ds.credentials.Username(),
+		"updated_at": ds.credentials.LastUpdated().Format(time.RFC3339),
+	})
 }
 
 // serveTenants serves tenant data
@@ -391,7 +522,7 @@ func (ds *DashboardServer) serveTenants(w http.ResponseWriter, r *http.Request) 
 			"description": "Main enterprise tenant",
 			"is_active":   true,
 			"settings": map[string]interface{}{
-				"max_endpoints": 100,
+				"max_endpoints":  100,
 				"scan_frequency": "daily",
 			},
 		},
@@ -401,7 +532,7 @@ func (ds *DashboardServer) serveTenants(w http.ResponseWriter, r *http.Request) 
 			"description": "Development and testing tenant",
 			"is_active":   true,
 			"settings": map[string]interface{}{
-				"max_endpoints": 50,
+				"max_endpoints":  50,
 				"scan_frequency": "hourly",
 			},
 		},
