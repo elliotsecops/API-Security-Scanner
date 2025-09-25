@@ -181,8 +181,67 @@ If you prefer manual installation:
 - **Node.js v16 or higher** - [Download Node.js](https://nodejs.org/)
 - **Git** - [Download Git](https://git-scm.com/downloads)
 
-### 🐳 Docker Installation and Integration Testing\n\nThe project includes a complete integration test environment with OWASP Juice Shop, allowing you to test the scanner in a controlled environment with known vulnerabilities.\n\n### Quick Start with Complete Environment\n\n```bash\n# Clone the repository\ngit clone https://github.com/elliotsecops/API-Security-Scanner.git\ncd API-Security-Scanner\n\n# Build and start both the scanner and the test API (OWASP Juice Shop)\ndocker-compose up -d\n\n# Verify both containers are running\ndocker ps\n\n# The dashboard is accessible at: http://localhost:8090 (or the port printed by the launcher)\n# The API is available on port: 8081 (for API calls)\n# The test API (Juice Shop) is available on port: 3000\n```\n\n### Run a Test Scan\n\nOnce both containers are running, you can execute a security scan:\n\n```bash\n# Run a test scan against OWASP Juice Shop\ndocker exec api-security-scanner ./api-security-scanner -config config-test.yaml -scan\n\n# Or run the scanner in dashboard mode\ndocker exec api-security-scanner ./api-security-scanner -config config-test.yaml -dashboard\n```\n\n### Manual Docker Build\n\n```bash\n# Build Docker image\ndocker build -t api-security-scanner .\n\n# Run with test configuration\ndocker run -d --name api-security-scanner -p 8080-8081:8080-8081 \\\n  -v $(pwd)/config-test.yaml:/app/config-test.yaml \\\n  -v $(pwd)/reports:/app/reports \\\n  api-security-scanner ./api-security-scanner -config config-test.yaml -dashboard\n```
-\n### One-Command Launch with Docker\n\nFor the simplest setup with automatic port detection and GUI:\n\n```bash\n# From the repo root (when using Docker setup)\n./start.sh --port 8081 --metrics-port 8090\n```\n\nAlternative shortcuts:\n```bash\nmake start            # same as ./start.sh\nnpm start             # same as ./start.sh\n```
+### 🐳 Docker Installation and Integration Testing
+
+The project includes a complete integration test environment with OWASP Juice Shop, allowing you to test the scanner in a controlled environment with known vulnerabilities.
+
+### Quick Start with Complete Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/elliotsecops/API-Security-Scanner.git
+cd API-Security-Scanner
+
+# Build and start both the scanner and the test API (OWASP Juice Shop)
+docker-compose up -d
+
+# Verify both containers are running
+docker ps
+
+# The dashboard is accessible at: http://localhost:8090 (or the port printed by the launcher)
+# The API is available on port: 8081 (for API calls)
+# The test API (Juice Shop) is available on port: 3000
+```
+
+### Run a Test Scan
+
+Once both containers are running, you can execute a security scan:
+
+```bash
+# Run a test scan against OWASP Juice Shop
+docker exec api-security-scanner ./api-security-scanner -config config-test.yaml -scan
+
+# Or run the scanner in dashboard mode
+docker exec api-security-scanner ./api-security-scanner -config config-test.yaml -dashboard
+```
+
+### One-Command Launch with Docker
+
+For the simplest setup with automatic port detection and GUI:
+
+```bash
+# From the repo root (when using Docker setup)
+./start.sh --port 8081 --metrics-port 8090
+```
+
+Alternative shortcuts:
+```bash
+make start            # same as ./start.sh
+npm start             # same as ./start.sh
+```
+
+### Manual Docker Build
+
+```bash
+# Build Docker image
+docker build -t api-security-scanner .
+
+# Run with test configuration
+docker run -d --name api-security-scanner -p 8080-8081:8080-8081 \
+  -v $(pwd)/config-test.yaml:/app/config-test.yaml \
+  -v $(pwd)/reports:/app/reports \
+  api-security-scanner ./api-security-scanner -config config-test.yaml -dashboard
+```
 
 ## 🎮 Running the Application
 
