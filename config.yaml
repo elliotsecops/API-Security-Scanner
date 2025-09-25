@@ -151,7 +151,7 @@ tenant:
 # Metrics and monitoring dashboard configuration
 metrics:
   enabled: true
-  port: 8080
+  port: 8090
   update_interval: 30s
   retention_days: 30
 
@@ -238,7 +238,7 @@ auth:
     token_url: ""
     auth_url: ""
     redirect_url: ""
-    scopes: []
+    scopes: ""
 
     # JWT
     algorithm: "HS256"  # HS256, HS384, HS512, RS256, RS384, RS512, ES256, ES384, ES512
@@ -246,29 +246,10 @@ auth:
     private_key: ""
     public_key: ""
     key_file: ""
-    claims:
-      iss: ""
-      sub: ""
-      aud: ""
-      exp: 3600
-      nbf: 0
-      iat: 0
-      roles: []
-      custom: {}
+    claims: ""
 
     # Mutual TLS
     cert_file: ""
-    ca_file: ""
-
-# Server configuration
-server:
-  port: 8081
-  host: "localhost"
-
-# Request headers
-headers:
-  "User-Agent": "API-Security-Scanner/4.0"
-  "X-Scanner": "true"
     ca_file: ""
 
 # Server configuration

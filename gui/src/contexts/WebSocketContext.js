@@ -19,7 +19,10 @@ export const WebSocketProvider = ({ children }) => {
     // Initialize WebSocket connection
     const connectWebSocket = () => {
       try {
-        const ws = new WebSocket('ws://localhost:8081/api/metrics/websocket');
+        const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const host = window.location.host; // includes hostname:port
+        const wsUrl = `${proto}://${host}/api/metrics/websocket`;
+        const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
           console.log('WebSocket connected');

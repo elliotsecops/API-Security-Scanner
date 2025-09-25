@@ -17,7 +17,6 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemSecondaryAction,
   IconButton,
   Dialog,
   DialogTitle,
@@ -26,9 +25,6 @@ import {
   Tabs,
   Tab,
   Paper,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
 } from '@mui/material';
 import {
   PlayArrow,
@@ -37,13 +33,11 @@ import {
   Delete,
   Visibility,
   Settings,
-  ExpandMore,
   Security,
   CheckCircle,
   Error,
   Warning,
 } from '@mui/icons-material';
-import { useWebSocket } from '../contexts/WebSocketContext';
 
 const Scanner = () => {
   const [scanConfig, setScanConfig] = useState({
@@ -67,14 +61,13 @@ const Scanner = () => {
   });
 
   const [activeScans, setActiveScans] = useState([]);
-  const [scanHistory, setScanHistory] = useState([]);
+  const [scanHistory] = useState([]);
   const [selectedScan, setSelectedScan] = useState(null);
   const [resultsDialogOpen, setResultsDialogOpen] = useState(false);
-  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [, setConfigDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [tabValue, setTabValue] = useState(0);
 
-  const { lastMessage, connectionStatus } = useWebSocket();
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);

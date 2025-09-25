@@ -2,7 +2,23 @@
 
 This guide will get you up and running in minutes with the optimized workflow. The easiest way to start is with the integrated Docker Compose setup that includes both the scanner and a vulnerable test API.
 
-## ⚡ One-Command Setup with Complete Test Environment
+## ⚡ One-Command Setup
+
+### Option 0: Easiest (no Docker)
+```bash
+# From the repo root
+./start.sh
+```
+- Auto-builds the GUI if needed and picks free ports when defaults are busy.
+- Default dashboard URL: http://localhost:8090 (the launcher prints the exact port).
+- No GUI: `./start.sh --no-gui`
+- Override ports: `./start.sh --port 8082 --metrics-port 8095`
+
+Shortcuts:
+```bash
+make start            # same as ./start.sh
+npm start             # same as ./start.sh
+```
 
 ### Option 1: Docker Compose (Recommended for Testing)
 ```bash
@@ -23,7 +39,7 @@ docker exec api-security-scanner ./api-security-scanner -config config-test.yaml
 
 ### Option 2: Quick Start (Dependencies Already Installed)
 ```bash
-# Just run the application
+# Development mode (GUI dev server)
 ./run.sh dev
 ```
 

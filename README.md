@@ -12,7 +12,31 @@ A comprehensive, enterprise-grade API security testing platform with an intuitiv
 
 ## 🎯 Quick Start
 
-**Get running in 60 seconds:**
+Easiest way (one command):
+
+```bash
+# From the repo root
+./start.sh
+```
+
+- This will automatically build the GUI if needed and pick free ports if defaults are busy.
+- Default dashboard URL: http://localhost:8090 (the exact port will be printed on start).
+- Run without the GUI: `./start.sh --no-gui`
+- Override ports: `./start.sh --port 8082 --metrics-port 8095`
+
+Alternative shortcuts:
+
+```bash
+# Using Make
+make start            # with GUI
+a make start-nogui     # backend only
+
+# Using npm (from repo root)
+npm start             # with GUI
+npm run start:nogui   # backend only
+```
+
+Previous flow (kept for development):
 
 ```bash
 # Clone and install everything automatically
@@ -20,12 +44,15 @@ git clone https://github.com/elliotsecops/API-Security-Scanner.git
 cd API-Security-Scanner
 ./install.sh
 
-# Or just run it (if dependencies are installed)
+# Or run development mode (GUI dev server)
 ./run.sh dev
 ```
 
-**Access the GUI:** http://localhost:3000 (development) or http://localhost:8080 (production)
-**Default Login:** `admin` / `admin`
+Access the GUI:
+- Development (run.sh dev): http://localhost:3000
+- Production via start.sh: http://localhost:8090 (or the printed port)
+
+Default Login: `admin` / `admin`
 
 ## 🌟 Why Choose This Scanner?
 
@@ -160,27 +187,34 @@ If you prefer manual installation:
 
 ### ⚡ Easy Commands
 
+One-command launch (recommended):
+
 ```bash
-# Development mode (GUI + backend)
-./run.sh dev
+./start.sh                       # build GUI if needed and start dashboard
+./start.sh --no-gui              # backend only
+./start.sh --port 8082           # override backend port
+./start.sh --metrics-port 8095   # override dashboard port
+```
 
-# Production mode (optimized single process)
-./run.sh prod
+Shortcuts:
 
-# Backend only
-./run.sh backend
+```bash
+make start           # same as ./start.sh
+make start-nogui     # same as ./start.sh --no-gui
+npm start            # same as ./start.sh
+npm run start:nogui  # same as ./start.sh --no-gui
+```
 
-# GUI development only
-./run.sh gui
+Legacy/dev commands (still available):
 
-# Build everything
-./run.sh build
-
-# Stop all processes
-./run.sh stop
-
-# Show all commands
-./run.sh help
+```bash
+./run.sh dev         # GUI dev server at :3000, backend at :8080
+./run.sh prod        # legacy production runner
+./run.sh backend     # backend only
+./run.sh gui         # GUI dev server
+./run.sh build       # build everything
+./run.sh stop        # stop processes
+./run.sh help        # show help
 ```
 
 ## 🚀 Usage
@@ -188,9 +222,9 @@ If you prefer manual installation:
 ### 🌐 Web Interface (GUI)
 
 **Access Points:**
-- **Development Mode**: http://localhost:3000
-- **Production Mode**: http://localhost:8080
-- **Default Login**: `admin` / `admin`
+- Development (run.sh dev): http://localhost:3000
+- Production (start.sh): http://localhost:8090 (or the port printed by the launcher)
+- Default Login: `admin` / `admin`
 
 **GUI Features:**
 - **📊 Dashboard**: Real-time metrics and system health

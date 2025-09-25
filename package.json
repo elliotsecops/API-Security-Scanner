@@ -1,0 +1,12 @@
+{
+  "name": "api-security-scanner-root",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "npm --prefix gui run build",
+    "start": "bash ./start.sh",
+    "start:nogui": "bash ./start.sh --no-gui",
+    "gui:install": "npm --prefix gui install",
+    "gui:start": "npm --prefix gui start"
+  }
+}
