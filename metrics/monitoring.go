@@ -8,6 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/net"
+
 	"api-security-scanner/logging"
 )
 
@@ -132,35 +135,46 @@ func (m *Monitor) collectStats() {
 		m.mu.Unlock()
 	}
 
-	// Collect memory stats
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-
+	// Collect Go runtime stats
+	var runtimeMemStats runtime.MemStats
+	runtime.ReadMemStats(&runtimeMemStats)
+	
 	m.mu.Lock()
 	m.memStats = append(m.memStats, MemStat{
 		Timestamp:   time.Now(),
-		Alloc:       memStats.Alloc,
-		TotalAlloc:  memStats.TotalAlloc,
-		Sys:         memStats.Sys,
-		NumGC:       memStats.NumGC,
+		Alloc:       runtimeMemStats.Alloc,
+		TotalAlloc:  runtimeMemStats.TotalAlloc,
+		Sys:         runtimeMemStats.Sys,
+		NumGC:       runtimeMemStats.NumGC,
 		Goroutines:  runtime.NumGoroutine(),
 	})
 	m.mu.Unlock()
 
-	// Collect network stats (simplified)
-	// Note: This is a simplified implementation. In a real-world scenario,
-	// you would use a more comprehensive network monitoring solution.
+	// Collect network stats using gopsutil
+	netIO, err := net.IOCounters(false)
+	if err != nil {
+		logging.Error("Failed to get network stats", map[string]interface{}{"error": err})
+	} else if len(netIO) > 0 {
+		netStat := netIO[0] // Use first network interface
+		m.mu.Lock()
+		m.netStats = append(m.netStats, NetStat{
+			Timestamp: time.Now(),
+			BytesSent: netStat.BytesSent,
+			BytesRecv: netStat.BytesRecv,
+		})
+		m.mu.Unlock()
+	}
 }
 
-// getCPUUsage calculates CPU usage (simplified implementation)
+// getCPUUsage calculates CPU usage using gopsutil
 func (m *Monitor) getCPUUsage() float64 {
-	// This is a simplified CPU usage calculation.
-	// In a real-world scenario, you would use platform-specific system calls
-	// or a library like github.com/shirou/gopsutil for accurate CPU usage.
-
-	// Simulate CPU usage with random values between 0-100%
-	// This is just for demonstration purposes
-	return float64(time.Now().UnixNano()%10000) / 100.0
+	percentages, err := cpu.Percent(time.Second, false)
+	if err != nil || len(percentages) == 0 {
+		logging.Error("Failed to get CPU usage", map[string]interface{}{"error": err})
+		return 0.0
+	}
+	
+	return percentages[0]
 }
 
 // GetCPUStats returns CPU statistics
@@ -238,6 +252,9 @@ func NewResourceMonitor(scanID, tenantID string, collector *MetricsCollector) *R
 func (rm *ResourceMonitor) Start() {
 	rm.monitor.Start()
 
+	// Record initial resource usage right away to ensure at least one sample exists
+	rm.reportCurrentStats()
+
 	// Start periodic reporting
 	go rm.reportStats()
 
@@ -249,6 +266,9 @@ func (rm *ResourceMonitor) Start() {
 
 // Stop stops the resource monitoring
 func (rm *ResourceMonitor) Stop() {
+	// Record final resource usage before stopping
+	rm.reportCurrentStats()
+	
 	rm.monitor.Stop()
 	rm.cancel()
 
@@ -275,22 +295,35 @@ func (rm *ResourceMonitor) reportStats() {
 
 // reportCurrentStats reports current statistics to the metrics collector
 func (rm *ResourceMonitor) reportCurrentStats() {
-	cpu, mem, net := rm.monitor.GetLatestStats()
+	// Get current system stats
+	cpuPercent, err := cpu.Percent(time.Second, false)
+	cpuUsage := 0.0
+	if err == nil && len(cpuPercent) > 0 {
+		cpuUsage = cpuPercent[0]
+	}
 
+	// Get network stats
+	netIO, err := net.IOCounters(false)
+	networkBytes := int64(0)
+	if err == nil && len(netIO) > 0 {
+		networkBytes = int64(netIO[0].BytesSent + netIO[0].BytesRecv)
+	}
+
+	// Get Go runtime stats
+	var runtimeMemStats runtime.MemStats
+	runtime.ReadMemStats(&runtimeMemStats)
+	
 	// Convert to MB for memory
-	memMB := float64(mem.Alloc) / 1024 / 1024
-
-	// Calculate network I/O (simplified)
-	networkBytes := int64(net.BytesSent + net.BytesRecv)
+	runtimeMemMB := float64(runtimeMemStats.Alloc) / 1024 / 1024
 
 	// Record resource usage in metrics collector
 	rm.collector.RecordResourceUsage(
 		rm.scanID,
-		cpu.Usage,
-		memMB,
-		mem.Goroutines,
+		cpuUsage,
+		runtimeMemMB, // Use runtime memory instead of system memory for consistency with original design
+		runtime.NumGoroutine(),
 		networkBytes,
-		0, // Disk I/O not implemented in this simplified version
+		0, // Disk I/O not implemented
 	)
 }
 

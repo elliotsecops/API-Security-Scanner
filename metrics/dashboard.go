@@ -124,6 +124,9 @@ func (ds *DashboardServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/ws":
 		ds.handleWebSocket(w, r)
 		return
+	case "/metrics":
+		ds.servePrometheusMetrics(w, r)
+		return
 	}
 
 	// Serve GUI static files if available
@@ -545,6 +548,131 @@ func (ds *DashboardServer) serveTenants(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Write(data)
+}
+
+// servePrometheusMetrics serves metrics in Prometheus format
+func (ds *DashboardServer) servePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+
+	// Get metrics data
+	systemMetrics := ds.collector.GetSystemMetrics(24 * time.Hour)
+
+	// Create Prometheus-formatted output
+	var prometheusData string
+
+	// System-level metrics HELP and TYPE definitions (always present)
+	prometheusData += fmt.Sprintf("# HELP api_scanner_total_scans Total number of scans\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_total_scans counter\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_total_endpoints Total number of endpoints tested\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_total_endpoints gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_total_vulnerabilities Total number of vulnerabilities\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_total_vulnerabilities gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_critical_vulnerabilities Number of critical vulnerabilities\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_critical_vulnerabilities gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_high_vulnerabilities Number of high vulnerabilities\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_high_vulnerabilities gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_medium_vulnerabilities Number of medium vulnerabilities\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_medium_vulnerabilities gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_low_vulnerabilities Number of low vulnerabilities\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_low_vulnerabilities gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_active_tenants Number of active tenants\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_active_tenants gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_avg_response_time Average response time in milliseconds\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_avg_response_time gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_throughput Requests per second\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_throughput gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_error_rate Percentage of errors\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_error_rate gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_cpu_usage CPU usage percentage\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_cpu_usage gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_memory_usage Memory usage in MB\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_memory_usage gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_goroutines Number of goroutines\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_goroutines gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_tenant_total_scans Total scans for tenant\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_tenant_total_scans gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_tenant_critical_vulnerabilities Critical vulnerabilities for tenant\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_tenant_critical_vulnerabilities gauge\n")
+	
+	prometheusData += fmt.Sprintf("# HELP api_scanner_tenant_high_vulnerabilities High vulnerabilities for tenant\n")
+	prometheusData += fmt.Sprintf("# TYPE api_scanner_tenant_high_vulnerabilities gauge\n")
+
+	// Add metric values if system metrics exist
+	if systemMetrics != nil {
+		prometheusData += fmt.Sprintf("api_scanner_total_scans %d\n", systemMetrics.TotalScans)
+		prometheusData += fmt.Sprintf("api_scanner_total_endpoints %d\n", systemMetrics.TotalEndpoints)
+		prometheusData += fmt.Sprintf("api_scanner_total_vulnerabilities %d\n", systemMetrics.Vulnerabilities.Total)
+		prometheusData += fmt.Sprintf("api_scanner_critical_vulnerabilities %d\n", systemMetrics.Vulnerabilities.Critical)
+		prometheusData += fmt.Sprintf("api_scanner_high_vulnerabilities %d\n", systemMetrics.Vulnerabilities.High)
+		prometheusData += fmt.Sprintf("api_scanner_medium_vulnerabilities %d\n", systemMetrics.Vulnerabilities.Medium)
+		prometheusData += fmt.Sprintf("api_scanner_low_vulnerabilities %d\n", systemMetrics.Vulnerabilities.Low)
+		prometheusData += fmt.Sprintf("api_scanner_active_tenants %d\n", systemMetrics.ActiveTenants)
+
+		// Performance metrics
+		if systemMetrics.Performance.AvgResponseTime > 0 {
+			prometheusData += fmt.Sprintf("api_scanner_avg_response_time %f\n", float64(systemMetrics.Performance.AvgResponseTime)/float64(time.Millisecond))
+		} else {
+			prometheusData += fmt.Sprintf("api_scanner_avg_response_time 0.0\n")
+		}
+
+		prometheusData += fmt.Sprintf("api_scanner_throughput %f\n", systemMetrics.Performance.Throughput)
+		prometheusData += fmt.Sprintf("api_scanner_error_rate %f\n", systemMetrics.Performance.ErrorRate)
+
+		// Resource usage metrics
+		prometheusData += fmt.Sprintf("api_scanner_cpu_usage %f\n", systemMetrics.ResourceUsage.CPUUsage)
+		prometheusData += fmt.Sprintf("api_scanner_memory_usage %f\n", systemMetrics.ResourceUsage.MemoryUsage)
+		prometheusData += fmt.Sprintf("api_scanner_goroutines %d\n", systemMetrics.ResourceUsage.Goroutines)
+	} else {
+		// If no system metrics, still output default zero values
+		prometheusData += fmt.Sprintf("api_scanner_total_scans 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_total_endpoints 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_total_vulnerabilities 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_critical_vulnerabilities 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_high_vulnerabilities 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_medium_vulnerabilities 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_low_vulnerabilities 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_active_tenants 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_avg_response_time 0.0\n")
+		prometheusData += fmt.Sprintf("api_scanner_throughput 0.0\n")
+		prometheusData += fmt.Sprintf("api_scanner_error_rate 0.0\n")
+		prometheusData += fmt.Sprintf("api_scanner_cpu_usage 0.0\n")
+		prometheusData += fmt.Sprintf("api_scanner_memory_usage 0.0\n")
+		prometheusData += fmt.Sprintf("api_scanner_goroutines 0\n")
+	}
+
+	// Add metrics for each tenant
+	if systemMetrics != nil && systemMetrics.TenantMetrics != nil {
+		for tenantID, tenantMetrics := range systemMetrics.TenantMetrics {
+			if tenantMetrics != nil {
+				tenantLabel := fmt.Sprintf(`{tenant_id="%s"}`, tenantID)
+				prometheusData += fmt.Sprintf("api_scanner_tenant_total_scans%s %d\n", tenantLabel, tenantMetrics.TotalScans)
+				prometheusData += fmt.Sprintf("api_scanner_tenant_critical_vulnerabilities%s %d\n", tenantLabel, tenantMetrics.Vulnerabilities.Critical)
+				prometheusData += fmt.Sprintf("api_scanner_tenant_high_vulnerabilities%s %d\n", tenantLabel, tenantMetrics.Vulnerabilities.High)
+			}
+		}
+	} else {
+		// Provide default tenant metrics with empty labels if no tenant data
+		prometheusData += fmt.Sprintf("api_scanner_tenant_total_scans{tenant_id=\"default\"} 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_tenant_critical_vulnerabilities{tenant_id=\"default\"} 0\n")
+		prometheusData += fmt.Sprintf("api_scanner_tenant_high_vulnerabilities{tenant_id=\"default\"} 0\n")
+	}
+
+	w.Write([]byte(prometheusData))
 }
 
 // Dashboard HTML template

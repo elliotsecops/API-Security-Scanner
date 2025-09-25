@@ -330,6 +330,7 @@ type TenantMetrics struct {
 	TotalEndpoints   int               `json:"total_endpoints"`
 	Vulnerabilities  VulnMetrics       `json:"vulnerabilities"`
 	Performance      PerfMetrics       `json:"performance"`
+	ResourceUsage    ResourceUsage     `json:"resource_usage"`
 	TopVulnerableEndpoints []EndpointScore `json:"top_vulnerable_endpoints"`
 	TrendData        []VulnTrendPoint  `json:"trend_data"`
 }
@@ -368,37 +369,89 @@ func (mc *MetricsCollector) aggregateTenantMetrics(scans []ScanMetrics) *TenantM
 			ByType:     make(map[string]int),
 			ByEndpoint: make(map[string]int),
 		},
+		Performance: PerfMetrics{
+			ResponseTimeDist: make([]ResponseTimePoint, 0),
+		},
 	}
 
 	endpointScores := make(map[string]*EndpointScore)
 
-	for _, scan := range scans {
-		metrics.TotalEndpoints += scan.TotalEndpoints
+	if len(scans) > 0 {
+		var totalResponseTime time.Duration
+		var maxResponseTime time.Duration
+		var minResponseTime time.Duration = time.Duration(1<<63 - 1) // Max possible duration
+		var totalThroughput float64
+		var totalErrorRate float64
+		
+		var totalCPUUsage, totalMemoryUsage float64
+		var totalGoroutines, totalNetworkBytes, totalDiskIO int64
 
-		// Aggregate vulnerabilities
-		metrics.Vulnerabilities.Total += scan.Vulnerabilities.Total
-		metrics.Vulnerabilities.Critical += scan.Vulnerabilities.Critical
-		metrics.Vulnerabilities.High += scan.Vulnerabilities.High
-		metrics.Vulnerabilities.Medium += scan.Vulnerabilities.Medium
-		metrics.Vulnerabilities.Low += scan.Vulnerabilities.Low
+		for _, scan := range scans {
+			metrics.TotalEndpoints += scan.TotalEndpoints
 
-		// Aggregate by type
-		for vulnType, count := range scan.Vulnerabilities.ByType {
-			metrics.Vulnerabilities.ByType[vulnType] += count
+			// Aggregate vulnerabilities
+			metrics.Vulnerabilities.Total += scan.Vulnerabilities.Total
+			metrics.Vulnerabilities.Critical += scan.Vulnerabilities.Critical
+			metrics.Vulnerabilities.High += scan.Vulnerabilities.High
+			metrics.Vulnerabilities.Medium += scan.Vulnerabilities.Medium
+			metrics.Vulnerabilities.Low += scan.Vulnerabilities.Low
+
+			// Aggregate by type
+			for vulnType, count := range scan.Vulnerabilities.ByType {
+				metrics.Vulnerabilities.ByType[vulnType] += count
+			}
+
+			// Aggregate by endpoint
+			for endpoint, count := range scan.Vulnerabilities.ByEndpoint {
+				metrics.Vulnerabilities.ByEndpoint[endpoint] += count
+
+				// Track endpoint scores
+				if _, exists := endpointScores[endpoint]; !exists {
+					endpointScores[endpoint] = &EndpointScore{
+						URL: endpoint,
+						LastScan: scan.StartTime,
+					}
+				}
+				endpointScores[endpoint].VulnerabilityCount += count
+			}
+
+			// Aggregate performance metrics
+			totalResponseTime += scan.Performance.AvgResponseTime
+			if scan.Performance.MaxResponseTime > maxResponseTime {
+				maxResponseTime = scan.Performance.MaxResponseTime
+			}
+			if scan.Performance.MinResponseTime < minResponseTime && scan.Performance.MinResponseTime > 0 {
+				minResponseTime = scan.Performance.MinResponseTime
+			}
+			totalThroughput += scan.Performance.Throughput
+			totalErrorRate += scan.Performance.ErrorRate
+
+			// Aggregate resource usage
+			totalCPUUsage += scan.ResourceUsage.CPUUsage
+			totalMemoryUsage += scan.ResourceUsage.MemoryUsage
+			totalGoroutines += int64(scan.ResourceUsage.Goroutines)
+			totalNetworkBytes += scan.ResourceUsage.NetworkBytes
+			totalDiskIO += scan.ResourceUsage.DiskIO
 		}
 
-		// Aggregate by endpoint
-		for endpoint, count := range scan.Vulnerabilities.ByEndpoint {
-			metrics.Vulnerabilities.ByEndpoint[endpoint] += count
-
-			// Track endpoint scores
-			if _, exists := endpointScores[endpoint]; !exists {
-				endpointScores[endpoint] = &EndpointScore{
-					URL: endpoint,
-					LastScan: scan.StartTime,
-				}
+		// Calculate averages for performance metrics
+		if len(scans) > 0 {
+			metrics.Performance.AvgResponseTime = totalResponseTime / time.Duration(len(scans))
+			metrics.Performance.MaxResponseTime = maxResponseTime
+			if minResponseTime != time.Duration(1<<63 - 1) {
+				metrics.Performance.MinResponseTime = minResponseTime
+			} else {
+				metrics.Performance.MinResponseTime = 0
 			}
-			endpointScores[endpoint].VulnerabilityCount += count
+			metrics.Performance.Throughput = totalThroughput / float64(len(scans))
+			metrics.Performance.ErrorRate = totalErrorRate / float64(len(scans))
+			
+			// Calculate averages for resource usage
+			metrics.ResourceUsage.CPUUsage = totalCPUUsage / float64(len(scans))
+			metrics.ResourceUsage.MemoryUsage = totalMemoryUsage / float64(len(scans))
+			metrics.ResourceUsage.Goroutines = int(totalGoroutines) / len(scans)
+			metrics.ResourceUsage.NetworkBytes = totalNetworkBytes / int64(len(scans))
+			metrics.ResourceUsage.DiskIO = totalDiskIO / int64(len(scans))
 		}
 	}
 
@@ -411,6 +464,7 @@ func (mc *MetricsCollector) aggregateTenantMetrics(scans []ScanMetrics) *TenantM
 	for _, score := range endpointScores {
 		metrics.TopVulnerableEndpoints = append(metrics.TopVulnerableEndpoints, *score)
 	}
+
 	sort.Slice(metrics.TopVulnerableEndpoints, func(i, j int) bool {
 		return metrics.TopVulnerableEndpoints[i].VulnerabilityCount >
 			   metrics.TopVulnerableEndpoints[j].VulnerabilityCount
@@ -443,23 +497,78 @@ func (mc *MetricsCollector) aggregateSystemMetrics(scans []ScanMetrics) *SystemM
 			ByType:     make(map[string]int),
 			ByEndpoint: make(map[string]int),
 		},
+		Performance: PerfMetrics{
+			ResponseTimeDist: make([]ResponseTimePoint, 0),
+		},
+		ResourceUsage: ResourceUsage{},
 		TenantMetrics: tenantMetrics,
 	}
 
 	// Aggregate metrics across all scans
-	for _, scan := range scans {
-		metrics.TotalEndpoints += scan.TotalEndpoints
+	if len(scans) > 0 {
+		var totalResponseTime time.Duration
+		var maxResponseTime time.Duration
+		var minResponseTime time.Duration = time.Duration(1<<63 - 1) // Max possible duration
+		var totalThroughput float64
+		var totalErrorRate float64
+		
+		var totalCPUUsage, totalMemoryUsage float64
+		var totalGoroutines, totalNetworkBytes, totalDiskIO int64
 
-		// Aggregate vulnerabilities
-		metrics.Vulnerabilities.Total += scan.Vulnerabilities.Total
-		metrics.Vulnerabilities.Critical += scan.Vulnerabilities.Critical
-		metrics.Vulnerabilities.High += scan.Vulnerabilities.High
-		metrics.Vulnerabilities.Medium += scan.Vulnerabilities.Medium
-		metrics.Vulnerabilities.Low += scan.Vulnerabilities.Low
+		for _, scan := range scans {
+			metrics.TotalEndpoints += scan.TotalEndpoints
 
-		// Aggregate by type
-		for vulnType, count := range scan.Vulnerabilities.ByType {
-			metrics.Vulnerabilities.ByType[vulnType] += count
+			// Aggregate vulnerabilities
+			metrics.Vulnerabilities.Total += scan.Vulnerabilities.Total
+			metrics.Vulnerabilities.Critical += scan.Vulnerabilities.Critical
+			metrics.Vulnerabilities.High += scan.Vulnerabilities.High
+			metrics.Vulnerabilities.Medium += scan.Vulnerabilities.Medium
+			metrics.Vulnerabilities.Low += scan.Vulnerabilities.Low
+
+			// Aggregate by type
+			for vulnType, count := range scan.Vulnerabilities.ByType {
+				metrics.Vulnerabilities.ByType[vulnType] += count
+			}
+
+			// Aggregate performance metrics
+			totalResponseTime += scan.Performance.AvgResponseTime
+			if scan.Performance.MaxResponseTime > maxResponseTime {
+				maxResponseTime = scan.Performance.MaxResponseTime
+			}
+			if scan.Performance.MinResponseTime < minResponseTime && scan.Performance.MinResponseTime > 0 {
+				minResponseTime = scan.Performance.MinResponseTime
+			}
+			totalThroughput += scan.Performance.Throughput
+			totalErrorRate += scan.Performance.ErrorRate
+
+			// Aggregate resource usage
+			totalCPUUsage += scan.ResourceUsage.CPUUsage
+			totalMemoryUsage += scan.ResourceUsage.MemoryUsage
+			totalGoroutines += int64(scan.ResourceUsage.Goroutines)
+			totalNetworkBytes += scan.ResourceUsage.NetworkBytes
+			totalDiskIO += scan.ResourceUsage.DiskIO
+		}
+
+		// Calculate averages for performance metrics
+		if len(scans) > 0 {
+			metrics.Performance.AvgResponseTime = totalResponseTime / time.Duration(len(scans))
+			metrics.Performance.MaxResponseTime = maxResponseTime
+			if minResponseTime != time.Duration(1<<63 - 1) {
+				metrics.Performance.MinResponseTime = minResponseTime
+			} else {
+				metrics.Performance.MinResponseTime = 0
+			}
+			metrics.Performance.Throughput = totalThroughput / float64(len(scans))
+			metrics.Performance.ErrorRate = totalErrorRate / float64(len(scans))
+		}
+
+		// Calculate averages for resource usage
+		if len(scans) > 0 {
+			metrics.ResourceUsage.CPUUsage = totalCPUUsage / float64(len(scans))
+			metrics.ResourceUsage.MemoryUsage = totalMemoryUsage / float64(len(scans))
+			metrics.ResourceUsage.Goroutines = int(totalGoroutines) / len(scans)
+			metrics.ResourceUsage.NetworkBytes = totalNetworkBytes / int64(len(scans))
+			metrics.ResourceUsage.DiskIO = totalDiskIO / int64(len(scans))
 		}
 	}
 

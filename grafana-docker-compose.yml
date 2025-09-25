@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # API Security Scanner - Dashboard only
+  api-security-scanner:
+    build: .
+    container_name: api-security-scanner
+    ports:
+      - "8081:8081"  # API server
+      - "8090:8090"  # Metrics dashboard
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./reports:/app/reports
+    environment:
+      - SCANNER_METRICS_PORT=8090
+    command: ["./api-security-scanner", "-dashboard"]
+    networks:
+      - scanner_net
+
+  # API Security Scanner - Scheduled scan workload
+  api-security-scanner-scan:
+    build: .
+    container_name: api-security-scanner-scan
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./reports:/app/reports
+    environment:
+      - SCANNER_METRICS_PORT=8090
+    # Run periodic scans (e.g., every 5 minutes) to populate metrics
+    # This container will periodically execute scans to populate metrics history
+    command: >
+      sh -c "
+        # Wait a bit for the dashboard service to be ready
+        sleep 10
+        # Run initial scan to populate metrics
+        ./api-security-scanner -scan || true
+        # Run periodic scans every 5 minutes
+        while true; do
+          sleep 300
+          ./api-security-scanner -scan || true
+        done
+      "
+    restart: unless-stopped
+    depends_on:
+      - api-security-scanner
+    networks:
+      - scanner_net
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - scanner_net
+
+  # Grafana
+  grafana:
+    image: grafana/grafana-enterprise:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Mount dashboard JSON and provisioning config for auto-provisioning
+      - ./grafana-dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json
+      - ./grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/default.yaml
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    networks:
+      - scanner_net
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  scanner_net:
+    driver: bridge

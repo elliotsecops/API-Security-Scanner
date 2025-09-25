@@ -1,0 +1,399 @@
+{
+  "id": null,
+  "title": "API Security Scanner Dashboard",
+  "tags": ["security", "api", "scanner", "vulnerabilities"],
+  "style": "dark",
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 16,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Vulnerability Summary",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "api_scanner_total_vulnerabilities",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Critical Vulnerabilities",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "api_scanner_critical_vulnerabilities",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "High Vulnerabilities",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "api_scanner_high_vulnerabilities",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Active Tenants",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {
+          "expr": "api_scanner_active_tenants",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Vulnerability Breakdown by Severity",
+      "type": "piechart",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "api_scanner_critical_vulnerabilities",
+          "legendFormat": "Critical",
+          "refId": "A"
+        },
+        {
+          "expr": "api_scanner_high_vulnerabilities",
+          "legendFormat": "High",
+          "refId": "B"
+        },
+        {
+          "expr": "api_scanner_medium_vulnerabilities",
+          "legendFormat": "Medium",
+          "refId": "C"
+        },
+        {
+          "expr": "api_scanner_low_vulnerabilities",
+          "legendFormat": "Low",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "System Resource Usage",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "api_scanner_cpu_usage",
+          "legendFormat": "CPU Usage",
+          "refId": "A"
+        },
+        {
+          "expr": "api_scanner_memory_usage",
+          "legendFormat": "Memory Usage (MB)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Memory Usage (MB)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "title": "Response Time and Throughput",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 17},
+      "targets": [
+        {
+          "expr": "api_scanner_avg_response_time",
+          "legendFormat": "Avg Response Time (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "api_scanner_throughput",
+          "legendFormat": "Throughput (req/s)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Throughput (req/s)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "reqps"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "title": "Error Rate Over Time",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 17},
+      "targets": [
+        {
+          "expr": "api_scanner_error_rate",
+          "legendFormat": "Error Rate (%)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percent"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Total Scans",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 25},
+      "targets": [
+        {
+          "expr": "api_scanner_total_scans",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Total Endpoints",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 25},
+      "targets": [
+        {
+          "expr": "api_scanner_total_endpoints",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Active Goroutines",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 25},
+      "targets": [
+        {
+          "expr": "api_scanner_goroutines",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Tenant Vulnerabilities",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 25},
+      "targets": [
+        {
+          "expr": "api_scanner_tenant_critical_vulnerabilities",
+          "legendFormat": "Critical - {{tenant_id}}",
+          "refId": "A"
+        },
+        {
+          "expr": "api_scanner_tenant_high_vulnerabilities",
+          "legendFormat": "High - {{tenant_id}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "none"
+        }
+      }
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "refresh": "30s",
+  "schemaVersion": 16,
+  "version": 1
+}

@@ -1,0 +1,32 @@
+# Prometheus Configuration for API Security Scanner
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - "alertmanager:9093"
+
+scrape_configs:
+  # API Security Scanner metrics
+  - job_name: 'api-security-scanner'
+    static_configs:
+      - targets: ['localhost:8090']  # This works for bare-metal deployments
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    
+  # API Security Scanner metrics (Docker service name)
+  - job_name: 'api-security-scanner-docker'
+    static_configs:
+      - targets: ['api-security-scanner:8090']  # For Docker Compose setup
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
