@@ -107,6 +107,7 @@ Built with enterprise-grade performance and reliability in mind, the scanner use
 - **SIEM Integration**: Native integration with Wazuh, Splunk, ELK, QRadar, and ArcSight for centralized security monitoring
 - **Advanced Authentication**: Support for OAuth2, JWT, API keys, bearer tokens, and mutual TLS authentication
 - **Real-Time Monitoring Dashboard**: Web-based dashboard with WebSocket support for live metrics and visualization
+- **Grafana Integration**: Built-in Prometheus metrics export for advanced visualization and alerting with Grafana
 - **Performance Metrics**: Comprehensive monitoring of CPU, memory, network usage, and scan performance
 - **Resource Management**: Configurable rate limits, concurrency controls, and resource quotas per tenant
 - **Alert Management**: Configurable alerts with email, Slack, and webhook notifications for critical findings
@@ -118,6 +119,7 @@ Built with enterprise-grade performance and reliability in mind, the scanner use
 - **React-Based GUI**: Modern, responsive web interface built with React and Material-UI
 - **Real-Time Dashboard**: Live metrics, vulnerability tracking, and system health monitoring
 - **Interactive Visualizations**: Charts and graphs for security data analysis using Chart.js
+- **Grafana Integration**: Prometheus metrics endpoint for advanced visualization and alerting
 - **Scan Management**: Configure, run, and monitor security scans through intuitive web interface
 - **Results Analysis**: Detailed vulnerability reports with filtering, searching, and export capabilities
 - **Multi-Tenant Management**: Complete tenant administration through web interface
@@ -1026,6 +1028,34 @@ metrics:
     interval: 30s
     timeout: 10s
 ```
+
+### Grafana Integration
+
+The API Security Scanner now includes built-in Prometheus metrics export for integration with Grafana for advanced visualization and monitoring:
+
+```yaml
+# Metrics Configuration (for Prometheus/Grafana integration)
+metrics:
+  enabled: true
+  port: 8090  # Prometheus will scrape metrics from this port
+  update_interval: 30s
+  retention_days: 30
+```
+
+The scanner exposes metrics in standard Prometheus format at the `/metrics` endpoint. To integrate with Grafana:
+
+1. **Direct Integration**: Configure Prometheus to scrape from `http://<scanner-host>:8090/metrics`
+2. **Docker Setup**: Use the provided `grafana-docker-compose.yml` for a complete setup with auto-provisioned dashboard
+3. **Custom Dashboards**: All scanner metrics are available with proper labels for tenant isolation
+
+Key metrics available include:
+- `api_scanner_total_vulnerabilities` - Total vulnerabilities found
+- `api_scanner_critical_vulnerabilities` - Critical vulnerabilities count
+- `api_scanner_cpu_usage` - System CPU usage percentage
+- `api_scanner_memory_usage` - Memory usage in MB
+- `api_scanner_throughput` - Requests per second
+- `api_scanner_error_rate` - Error rate percentage
+- And many more metrics with tenant-specific labels
 
 ## 🐛 Troubleshooting
 
