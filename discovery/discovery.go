@@ -50,6 +50,11 @@ func NewAPIDiscovery(config DiscoveryConfig) *APIDiscovery {
 		visited: make(map[string]bool),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        50,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
 		},
 	}
 }
@@ -140,11 +145,13 @@ func (d *APIDiscovery) crawl(currentURL string, depth int) error {
 			"url":    currentURL,
 			"status": resp.StatusCode,
 		})
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 		return nil
 	}
 
 	// Check if this is an API endpoint
-	if d.isAPIEndpoint(currentURL, resp) {
+	isAPI := d.isAPIEndpoint(currentURL, resp)
+	if isAPI {
 		d.mutex.Lock()
 		d.discovered = append(d.discovered, types.APIEndpoint{
 			URL:    currentURL,
@@ -168,7 +175,7 @@ func (d *APIDiscovery) crawl(currentURL string, depth int) error {
 
 	// If follow_links is enabled and this is HTML, parse for links
 	if d.config.FollowLinks && strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // Limit to 10MB
 		if err != nil {
 			logging.Warn("Failed to read response body", map[string]interface{}{
 				"url":   currentURL,
@@ -189,18 +196,30 @@ func (d *APIDiscovery) crawl(currentURL string, depth int) error {
 						"error": err.Error(),
 					})
 				} else {
-					// Crawl discovered links
+					// Crawl discovered links concurrently with semaphore
+					var wg sync.WaitGroup
+					sem := make(chan struct{}, 5)
 					for _, link := range links {
-						if err := d.crawl(link, depth+1); err != nil {
-							logging.Warn("Failed to crawl discovered link", map[string]interface{}{
-								"url":   link,
-								"error": err.Error(),
-							})
-						}
+						wg.Add(1)
+						go func(l string) {
+							defer wg.Done()
+							sem <- struct{}{}
+							defer func() { <-sem }()
+							if err := d.crawl(l, depth+1); err != nil {
+								logging.Warn("Failed to crawl discovered link", map[string]interface{}{
+									"url":   l,
+									"error": err.Error(),
+								})
+							}
+						}(link)
 					}
+					wg.Wait()
 				}
 			}
 		}
+	} else if !isAPI {
+		// Drain body for non-HTML, non-API responses to allow connection reuse
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 	}
 
 	return nil
