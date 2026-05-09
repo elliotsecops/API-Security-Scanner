@@ -46,10 +46,10 @@ func main() {
 	logging.SetGlobalFormat("json")
 
 	logging.Info("Starting API Security Scanner - Phase 4 Enterprise Edition", map[string]interface{}{
-		"version":    "4.0.0",
-		"config":     *configFile,
-		"tenant_id":  *tenantID,
-		"scan_mode":  *scanMode,
+		"version":   "4.0.0",
+		"config":    *configFile,
+		"tenant_id": *tenantID,
+		"scan_mode": *scanMode,
 		"dashboard": *dashboardMode,
 	})
 
@@ -63,15 +63,12 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Note: Tenant manager initialization removed for simplicity
-
 	// Create tenant configuration from app config
 	tenantConfig := &tenant.Tenant{
 		ID:          appConfig.Tenant.ID,
 		Name:        appConfig.Tenant.Name,
 		Description: appConfig.Tenant.Description,
 		IsActive:    appConfig.Tenant.IsActive,
-		// Note: Settings would need to be converted but we'll keep it simple for now
 	}
 
 	// Initialize metrics collector
@@ -80,7 +77,6 @@ func main() {
 	// Initialize SIEM client if enabled
 	var siemClient *siem.SIEMClient
 	if appConfig.SIEM != nil && appConfig.SIEM.Enabled {
-		// Convert config.SIEM to tenant.SIEMConfig
 		siemConfig := &tenant.SIEMConfig{
 			Enabled:     appConfig.SIEM.Enabled,
 			Type:        tenant.SIEMType(appConfig.SIEM.Type),
@@ -89,7 +85,6 @@ func main() {
 			EndpointURL: appConfig.SIEM.EndpointURL,
 			AuthToken:   appConfig.SIEM.AuthToken,
 		}
-		// Convert interface{} config to string config
 		for k, v := range appConfig.SIEM.Config {
 			if str, ok := v.(string); ok {
 				siemConfig.Config[k] = str
@@ -110,7 +105,6 @@ func main() {
 	// Initialize advanced authentication if enabled
 	var authManager *auth.AdvancedAuthManager
 	if appConfig.Auth.Enabled {
-		// Create auth config from application config
 		authConfig := &auth.AdvancedAuthConfig{
 			Enabled: true,
 			Type:    auth.AuthType(appConfig.Auth.Type),
@@ -196,13 +190,10 @@ func runScan(appConfig *config.Config, tenantConfig *tenant.Tenant, metricsColle
 		"endpoints": len(appConfig.Scanner.APIEndpoints),
 	})
 
-	// Create scanner instance - RunTests is the main function
-	results := scanner.RunTests(appConfig.Scanner)
-
 	// Generate scan ID
 	scanID := fmt.Sprintf("scan_%d", time.Now().Unix())
 
-	// Start metrics collection
+	// Start metrics collection BEFORE running tests
 	metricsCollector.StartScan(scanID, tenantConfig.ID, len(appConfig.Scanner.APIEndpoints))
 
 	// Start resource monitoring
@@ -210,7 +201,8 @@ func runScan(appConfig *config.Config, tenantConfig *tenant.Tenant, metricsColle
 	resourceMonitor.Start()
 	defer resourceMonitor.Stop()
 
-	// Results are already generated from RunTests above
+	// Run the actual tests
+	results := scanner.RunTests(appConfig.Scanner)
 
 	// Record metrics for each endpoint
 	for _, result := range results {
@@ -241,12 +233,12 @@ func runScan(appConfig *config.Config, tenantConfig *tenant.Tenant, metricsColle
 		}
 	}
 
-	// Generate output report - results are already available
+	// Generate output report
 	fmt.Printf("Scan completed successfully. Processed %d endpoints.\n", len(results))
 
 	logging.Info("Scan completed successfully", map[string]interface{}{
-		"scan_id":     scanID,
-		"endpoints":   len(results),
+		"scan_id":         scanID,
+		"endpoints":       len(results),
 		"vulnerabilities": countVulnerabilities(results),
 	})
 }
