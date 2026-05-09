@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { AppBar, Toolbar, Typography, Box, Drawer, List, ListItem, ListItemIcon, ListItemText, IconButton, Container } from '@mui/material';
+import { AppBar, Toolbar, Typography, Box, Drawer, List, ListItem, ListItemIcon, ListItemText, IconButton, Container, CircularProgress } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
   Security as SecurityIcon,
@@ -12,16 +12,18 @@ import {
   Notifications as NotificationsIcon,
   Menu as MenuIcon
 } from '@mui/icons-material';
-import Dashboard from './components/Dashboard';
-import Scanner from './components/Scanner';
-import Results from './components/Results';
-import Tenants from './components/Tenants';
-import Settings from './components/Settings';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Login';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import { MetricsProvider } from './contexts/MetricsContext';
+
+// Lazy load route components for code splitting
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const Scanner = lazy(() => import('./components/Scanner'));
+const Results = lazy(() => import('./components/Results'));
+const Tenants = lazy(() => import('./components/Tenants'));
+const Settings = lazy(() => import('./components/Settings'));
 
 const theme = createTheme({
   palette: {
@@ -75,6 +77,12 @@ const theme = createTheme({
 
 const drawerWidth = 240;
 
+const LoadingFallback = () => (
+  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+    <CircularProgress />
+  </Box>
+);
+
 function AppContent() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, logout } = useAuth();
@@ -83,15 +91,15 @@ function AppContent() {
     setMobileOpen(!mobileOpen);
   };
 
-  const menuItems = [
+  const menuItems = useMemo(() => [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
     { text: 'Scanner', icon: <SecurityIcon />, path: '/scanner' },
     { text: 'Results', icon: <AssessmentIcon />, path: '/results' },
     { text: 'Tenants', icon: <PeopleIcon />, path: '/tenants' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
-  ];
+  ], []);
 
-  const drawer = (
+  const drawer = useMemo(() => (
     <div>
       <Toolbar>
         <Typography variant="h6" noWrap component="div">
@@ -107,7 +115,7 @@ function AppContent() {
         ))}
       </List>
     </div>
-  );
+  ), [menuItems]);
 
   if (!user) {
     return <Login />;
@@ -185,13 +193,15 @@ function AppContent() {
       >
         <Toolbar />
         <Container maxWidth="lg">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/scanner" element={<Scanner />} />
-            <Route path="/results" element={<Results />} />
-            <Route path="/tenants" element={<Tenants />} />
-            <Route path="/settings" element={<Settings />} />
-          </Routes>
+          <Suspense fallback={<LoadingFallback />}>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/scanner" element={<Scanner />} />
+              <Route path="/results" element={<Results />} />
+              <Route path="/tenants" element={<Tenants />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </Suspense>
         </Container>
       </Box>
     </Box>
