@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,9 @@ import (
 	"api-security-scanner/history"
 	"api-security-scanner/types"
 )
+
+// MaxResponseBodySize limits response reading to prevent OOM
+const MaxResponseBodySize = 10 * 1024 * 1024 // 10MB
 
 // Config represents the overall configuration
 type Config struct {
@@ -37,8 +41,6 @@ type RateLimiting struct {
 	RequestsPerSecond      int `yaml:"requests_per_second"`
 	MaxConcurrentRequests  int `yaml:"max_concurrent_requests"`
 }
-
-
 
 // Auth represents authentication credentials
 type Auth struct {
@@ -65,6 +67,82 @@ func (e AuthBypassError) Error() string        { return e.message }
 func (e ParameterTamperingError) Error() string { return e.message }
 func (e NoSQLInjectionError) Error() string    { return e.message }
 
+// testRunner holds shared state for test execution
+type testRunner struct {
+	client      *http.Client
+	config      *Config
+	limiter     *ratelimit.RateLimiter
+	resultMutex sync.Mutex
+}
+
+// newTestRunner creates a testRunner with a shared HTTP client
+func newTestRunner(config *Config) *testRunner {
+	return &testRunner{
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
+		config: config,
+	}
+}
+
+// doRequest performs an HTTP request and drains the body for connection reuse
+func (tr *testRunner) doRequest(req *http.Request) (*http.Response, error) {
+	resp, err := tr.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// readBody safely reads response body up to MaxResponseBodySize
+func readBody(resp *http.Response) ([]byte, error) {
+	defer resp.Body.Close()
+	limitedReader := io.LimitReader(resp.Body, MaxResponseBodySize)
+	return io.ReadAll(limitedReader)
+}
+
+// drainBody reads and discards the response body for connection reuse
+func drainBody(resp *http.Response) {
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	resp.Body.Close()
+}
+
+// baselineCache caches baseline responses per endpoint to avoid duplicate requests
+type baselineCache struct {
+	mu      sync.RWMutex
+	entries map[string]baselineEntry
+}
+
+type baselineEntry struct {
+	statusCode int
+	body       []byte
+	err        error
+}
+
+func newBaselineCache() *baselineCache {
+	return &baselineCache{entries: make(map[string]baselineEntry)}
+}
+
+func (bc *baselineCache) get(key string) (baselineEntry, bool) {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	entry, ok := bc.entries[key]
+	return entry, ok
+}
+
+func (bc *baselineCache) set(key string, entry baselineEntry) {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	bc.entries[key] = entry
+}
 
 // RunTests runs all security tests concurrently and returns a slice of EndpointResult
 func RunTests(config *Config) []types.EndpointResult {
@@ -77,7 +155,7 @@ func RunTests(config *Config) []types.EndpointResult {
 	if requestsPerSecond <= 0 {
 		requestsPerSecond = 10
 	}
-	
+
 	maxConcurrentRequests := config.RateLimiting.MaxConcurrentRequests
 	if maxConcurrentRequests <= 0 {
 		maxConcurrentRequests = 5
@@ -86,190 +164,32 @@ func RunTests(config *Config) []types.EndpointResult {
 	// Create rate limiter
 	rateLimiter := ratelimit.NewRateLimiter(requestsPerSecond, maxConcurrentRequests)
 
-	var wg sync.WaitGroup
+	tr := newTestRunner(config)
+	tr.limiter = rateLimiter
+	bc := newBaselineCache()
+
 	results := make([]types.EndpointResult, len(config.APIEndpoints))
+	var wg sync.WaitGroup
+
+	// Worker pool: limit concurrent endpoints being tested
+	endpointSem := make(chan struct{}, maxConcurrentRequests)
 
 	for i, endpoint := range config.APIEndpoints {
-		wg.Add(8) // Updated to include Phase 3 tests
+		wg.Add(1)
 		results[i] = types.EndpointResult{URL: endpoint.URL, Score: 100}
 
-		logging.Debug("Testing endpoint", map[string]interface{}{
-			"url":    endpoint.URL,
-			"method": endpoint.Method,
-			"index":  i,
-		})
-
-		go func(e types.APIEndpoint, i int) {
+		go func(e types.APIEndpoint, idx int) {
 			defer wg.Done()
-			// Wait for rate limiter
-			rateLimiter.Wait()
-			defer rateLimiter.Done()
-			
-			if err := testAuth(e, config.Auth); err != nil {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Auth Test", Passed: false, Message: err.Error()})
-				results[i].Score -= 30
-				logging.Warn("Auth test failed", map[string]interface{}{
-					"url":   e.URL,
-					"error": err.Error(),
-				})
-			} else {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Auth Test", Passed: true, Message: "Auth Test Passed"})
-				logging.Debug("Auth test passed", map[string]interface{}{
-					"url": e.URL,
-				})
-			}
-		}(endpoint, i)
+			endpointSem <- struct{}{}
+			defer func() { <-endpointSem }()
 
-		go func(e types.APIEndpoint, i int) {
-			defer wg.Done()
-			// Wait for rate limiter
-			rateLimiter.Wait()
-			defer rateLimiter.Done()
-			
-			if err := testHTTPMethod(e, config.Auth); err != nil {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "HTTP Method Test", Passed: false, Message: err.Error()})
-				results[i].Score -= 20
-				logging.Warn("HTTP method test failed", map[string]interface{}{
-					"url":   e.URL,
-					"error": err.Error(),
-				})
-			} else {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "HTTP Method Test", Passed: true, Message: "HTTP Method Test Passed"})
-				logging.Debug("HTTP method test passed", map[string]interface{}{
-					"url": e.URL,
-				})
-			}
-		}(endpoint, i)
+			logging.Debug("Testing endpoint", map[string]interface{}{
+				"url":    e.URL,
+				"method": e.Method,
+				"index":  idx,
+			})
 
-		go func(e types.APIEndpoint, i int) {
-			defer wg.Done()
-			// Wait for rate limiter
-			rateLimiter.Wait()
-			defer rateLimiter.Done()
-			
-			if err := testInjection(e, config.Auth, config.InjectionPayloads); err != nil {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Injection Test", Passed: false, Message: err.Error()})
-				results[i].Score -= 50
-				logging.Warn("Injection test failed", map[string]interface{}{
-					"url":   e.URL,
-					"error": err.Error(),
-				})
-			} else {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Injection Test", Passed: true, Message: "Injection Test Passed"})
-				logging.Debug("Injection test passed", map[string]interface{}{
-					"url": e.URL,
-				})
-			}
-		}(endpoint, i)
-
-		// Phase 2: XSS vulnerability detection
-		go func(e types.APIEndpoint, i int) {
-			defer wg.Done()
-			// Wait for rate limiter
-			rateLimiter.Wait()
-			defer rateLimiter.Done()
-			
-			if err := testXSS(e, config.Auth, config.XSSPayloads); err != nil {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "XSS Test", Passed: false, Message: err.Error()})
-				results[i].Score -= 40
-				logging.Warn("XSS test failed", map[string]interface{}{
-					"url":   e.URL,
-					"error": err.Error(),
-				})
-			} else {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "XSS Test", Passed: true, Message: "XSS Test Passed"})
-				logging.Debug("XSS test passed", map[string]interface{}{
-					"url": e.URL,
-				})
-			}
-		}(endpoint, i)
-
-		// Phase 2: Header security analysis
-		go func(e types.APIEndpoint, i int) {
-			defer wg.Done()
-			// Wait for rate limiter
-			rateLimiter.Wait()
-			defer rateLimiter.Done()
-			
-			if err := testHeaderSecurity(e, config.Auth, config.Headers); err != nil {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Header Security Test", Passed: false, Message: err.Error()})
-				results[i].Score -= 25
-				logging.Warn("Header security test failed", map[string]interface{}{
-					"url":   e.URL,
-					"error": err.Error(),
-				})
-			} else {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Header Security Test", Passed: true, Message: "Header Security Test Passed"})
-				logging.Debug("Header security test passed", map[string]interface{}{
-					"url": e.URL,
-				})
-			}
-		}(endpoint, i)
-
-		// Phase 2: Authentication bypass testing
-		go func(e types.APIEndpoint, i int) {
-			defer wg.Done()
-			// Wait for rate limiter
-			rateLimiter.Wait()
-			defer rateLimiter.Done()
-			
-			if err := testAuthBypass(e, config.Auth); err != nil {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Auth Bypass Test", Passed: false, Message: err.Error()})
-				results[i].Score -= 35
-				logging.Warn("Auth bypass test failed", map[string]interface{}{
-					"url":   e.URL,
-					"error": err.Error(),
-				})
-			} else {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Auth Bypass Test", Passed: true, Message: "Auth Bypass Test Passed"})
-				logging.Debug("Auth bypass test passed", map[string]interface{}{
-					"url": e.URL,
-				})
-			}
-		}(endpoint, i)
-
-		// Phase 2: Parameter tampering detection
-		go func(e types.APIEndpoint, i int) {
-			defer wg.Done()
-			// Wait for rate limiter
-			rateLimiter.Wait()
-			defer rateLimiter.Done()
-
-			if err := testParameterTampering(e, config.Auth); err != nil {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Parameter Tampering Test", Passed: false, Message: err.Error()})
-				results[i].Score -= 30
-				logging.Warn("Parameter tampering test failed", map[string]interface{}{
-					"url":   e.URL,
-					"error": err.Error(),
-				})
-			} else {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "Parameter Tampering Test", Passed: true, Message: "Parameter Tampering Test Passed"})
-				logging.Debug("Parameter tampering test passed", map[string]interface{}{
-					"url": e.URL,
-				})
-			}
-		}(endpoint, i)
-
-		// Phase 3: NoSQL injection testing
-		go func(e types.APIEndpoint, i int) {
-			defer wg.Done()
-			// Wait for rate limiter
-			rateLimiter.Wait()
-			defer rateLimiter.Done()
-
-			if err := testNoSQLInjection(e, config.Auth, config.NoSQLPayloads); err != nil {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "NoSQL Injection Test", Passed: false, Message: err.Error()})
-				results[i].Score -= 45
-				logging.Warn("NoSQL injection test failed", map[string]interface{}{
-					"url":   e.URL,
-					"error": err.Error(),
-				})
-			} else {
-				results[i].Results = append(results[i].Results, types.TestResult{TestName: "NoSQL Injection Test", Passed: true, Message: "NoSQL Injection Test Passed"})
-				logging.Debug("NoSQL injection test passed", map[string]interface{}{
-					"url": e.URL,
-				})
-			}
+			tr.runAllTests(e, idx, &results[idx], bc)
 		}(endpoint, i)
 	}
 
@@ -282,13 +202,61 @@ func RunTests(config *Config) []types.EndpointResult {
 	return results
 }
 
-func testAuth(endpoint types.APIEndpoint, auth Auth) error {
+// runAllTests runs all security tests for a single endpoint sequentially
+// This reduces goroutine overhead and simplifies synchronization
+func (tr *testRunner) runAllTests(endpoint types.APIEndpoint, idx int, result *types.EndpointResult, bc *baselineCache) {
+	tests := []struct {
+		name   string
+		fn     func(types.APIEndpoint, *baselineCache) error
+		weight int
+	}{
+		{"Auth Test", tr.testAuth, 30},
+		{"HTTP Method Test", tr.testHTTPMethod, 20},
+		{"Injection Test", tr.testInjection, 50},
+		{"XSS Test", tr.testXSS, 40},
+		{"Header Security Test", tr.testHeaderSecurity, 25},
+		{"Auth Bypass Test", tr.testAuthBypass, 35},
+		{"Parameter Tampering Test", tr.testParameterTampering, 30},
+		{"NoSQL Injection Test", tr.testNoSQLInjection, 45},
+	}
+
+	for _, test := range tests {
+		tr.limiter.Wait()
+		if err := test.fn(endpoint, bc); err != nil {
+			tr.resultMutex.Lock()
+			result.Results = append(result.Results, types.TestResult{
+				TestName: test.name,
+				Passed:   false,
+				Message:  err.Error(),
+			})
+			result.Score -= test.weight
+			tr.resultMutex.Unlock()
+			logging.Warn(test.name+" failed", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+		} else {
+			tr.resultMutex.Lock()
+			result.Results = append(result.Results, types.TestResult{
+				TestName: test.name,
+				Passed:   true,
+				Message:  test.name + " Passed",
+			})
+			tr.resultMutex.Unlock()
+			logging.Debug(test.name+" passed", map[string]interface{}{
+				"url": endpoint.URL,
+			})
+		}
+		tr.limiter.Done()
+	}
+}
+
+func (tr *testRunner) testAuth(endpoint types.APIEndpoint, _ *baselineCache) error {
 	logging.Debug("Testing authentication", map[string]interface{}{
 		"url":    endpoint.URL,
 		"method": endpoint.Method,
 	})
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
 	if err != nil {
 		logging.Error("Failed to create request", map[string]interface{}{
@@ -298,9 +266,9 @@ func testAuth(endpoint types.APIEndpoint, auth Auth) error {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
 
-	req.SetBasicAuth(auth.Username, auth.Password)
+	req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
 
-	resp, err := client.Do(req)
+	resp, err := tr.doRequest(req)
 	if err != nil {
 		logging.Error("Request failed", map[string]interface{}{
 			"url":   endpoint.URL,
@@ -308,7 +276,7 @@ func testAuth(endpoint types.APIEndpoint, auth Auth) error {
 		})
 		return fmt.Errorf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	drainBody(resp)
 
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated, http.StatusAccepted:
@@ -326,82 +294,79 @@ func testAuth(endpoint types.APIEndpoint, auth Auth) error {
 	}
 }
 
-func testHTTPMethod(endpoint types.APIEndpoint, auth Auth) error {
-	client := &http.Client{Timeout: 10 * time.Second}
+func (tr *testRunner) testHTTPMethod(endpoint types.APIEndpoint, _ *baselineCache) error {
 	req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
-	req.SetBasicAuth(auth.Username, auth.Password)
+	req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
 
-	resp, err := client.Do(req)
+	resp, err := tr.doRequest(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	drainBody(resp)
 
-	// A 401 or 403 is an auth failure, not an HTTP method failure.
-	// The auth test will catch these. For this test, we only care about other statuses.
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated, http.StatusAccepted:
-		return nil // Correct method used
+		return nil
 	case http.StatusMethodNotAllowed, http.StatusNotFound:
 		return HTTPMethodError{fmt.Sprintf("disallowed method returned status: %d", resp.StatusCode)}
 	default:
-		// Any other error is unexpected.
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 }
 
-func testInjection(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
+func (tr *testRunner) getBaseline(endpoint types.APIEndpoint, bc *baselineCache) (baselineEntry, error) {
+	key := endpoint.URL + "|" + endpoint.Method + "|" + endpoint.Body
+	if entry, ok := bc.get(key); ok {
+		return entry, nil
+	}
+
+	req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
+	if err != nil {
+		return baselineEntry{}, fmt.Errorf("failed to create baseline request: %v", err)
+	}
+	req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
+
+	resp, err := tr.doRequest(req)
+	if err != nil {
+		return baselineEntry{}, fmt.Errorf("baseline request failed: %v", err)
+	}
+
+	body, err := readBody(resp)
+	entry := baselineEntry{
+		statusCode: resp.StatusCode,
+		body:       body,
+		err:        err,
+	}
+	bc.set(key, entry)
+	return entry, nil
+}
+
+func (tr *testRunner) testInjection(endpoint types.APIEndpoint, bc *baselineCache) error {
 	logging.Debug("Testing injection", map[string]interface{}{
-		"url":           endpoint.URL,
-		"method":        endpoint.Method,
-		"payloads_count": len(payloads),
+		"url":            endpoint.URL,
+		"method":         endpoint.Method,
+		"payloads_count": len(tr.config.InjectionPayloads),
 	})
 
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	// First, send a request with no payload to get a baseline response
-	baselineReq, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
+	baseline, err := tr.getBaseline(endpoint, bc)
 	if err != nil {
-		logging.Error("Failed to create baseline request", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("failed to create baseline request: %v", err)
+		return err
 	}
-	baselineReq.SetBasicAuth(auth.Username, auth.Password)
 
-	baselineResp, err := client.Do(baselineReq)
-	if err != nil {
-		logging.Error("Baseline request failed", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("baseline request failed: %v", err)
-	}
-	defer baselineResp.Body.Close()
-
-	// If baseline is unauthorized, we can't continue the injection test.
-	if baselineResp.StatusCode == http.StatusUnauthorized || baselineResp.StatusCode == http.StatusForbidden {
+	if baseline.statusCode == http.StatusUnauthorized || baseline.statusCode == http.StatusForbidden {
 		logging.Warn("Cannot perform injection test", map[string]interface{}{
 			"url":    endpoint.URL,
-			"status": baselineResp.StatusCode,
+			"status": baseline.statusCode,
 		})
-		return fmt.Errorf("cannot perform injection test: baseline request failed with status %d", baselineResp.StatusCode)
+		return fmt.Errorf("cannot perform injection test: baseline request failed with status %d", baseline.statusCode)
 	}
 
-	baselineBody, err := io.ReadAll(baselineResp.Body)
-	if err != nil {
-		logging.Error("Failed to read baseline response body", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("failed to read baseline response body: %v", err)
-	}
+	baselineBody := string(baseline.body)
 
-	for i, payload := range payloads {
+	for i, payload := range tr.config.InjectionPayloads {
 		logging.Debug("Testing injection payload", map[string]interface{}{
 			"url":     endpoint.URL,
 			"payload": payload,
@@ -418,9 +383,9 @@ func testInjection(endpoint types.APIEndpoint, auth Auth, payloads []string) err
 			})
 			return fmt.Errorf("failed to create request: %v", err)
 		}
-		req.SetBasicAuth(auth.Username, auth.Password)
+		req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
 
-		resp, err := client.Do(req)
+		resp, err := tr.doRequest(req)
 		if err != nil {
 			logging.Error("Request failed", map[string]interface{}{
 				"url":     endpoint.URL,
@@ -429,9 +394,8 @@ func testInjection(endpoint types.APIEndpoint, auth Auth, payloads []string) err
 			})
 			return fmt.Errorf("request failed: %v", err)
 		}
-		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := readBody(resp)
 		if err != nil {
 			logging.Error("Failed to read response body", map[string]interface{}{
 				"url":     endpoint.URL,
@@ -441,8 +405,7 @@ func testInjection(endpoint types.APIEndpoint, auth Auth, payloads []string) err
 			return fmt.Errorf("failed to read response body: %v", err)
 		}
 
-		// Check for indicators of successful SQL injection
-		if indicatorsOfSQLInjection(string(body), string(baselineBody)) {
+		if indicatorsOfSQLInjection(string(body), baselineBody) {
 			logging.Warn("Potential SQL injection detected", map[string]interface{}{
 				"url":     endpoint.URL,
 				"payload": payload,
@@ -454,7 +417,6 @@ func testInjection(endpoint types.APIEndpoint, auth Auth, payloads []string) err
 }
 
 func indicatorsOfSQLInjection(responseBody, baselineBody string) bool {
-	// List of common SQL error messages
 	sqlErrorMessages := []string{
 		"SQL syntax",
 		"mysql_fetch_array",
@@ -468,19 +430,16 @@ func indicatorsOfSQLInjection(responseBody, baselineBody string) bool {
 		"You have an error in your SQL syntax",
 	}
 
-	// Check if the response contains any SQL error messages
 	for _, errorMsg := range sqlErrorMessages {
 		if strings.Contains(responseBody, errorMsg) {
 			return true
 		}
 	}
 
-	// Check for significant differences in response length
 	if len(responseBody) > len(baselineBody)*2 || len(responseBody) < len(baselineBody)/2 {
 		return true
 	}
 
-	// Check for changes in response structure
 	if strings.Count(responseBody, "{") != strings.Count(baselineBody, "{") ||
 		strings.Count(responseBody, "}") != strings.Count(baselineBody, "}") {
 		return true
@@ -489,63 +448,35 @@ func indicatorsOfSQLInjection(responseBody, baselineBody string) bool {
 	return false
 }
 
-// testXSS tests for cross-site scripting vulnerabilities
-func testXSS(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
+func (tr *testRunner) testXSS(endpoint types.APIEndpoint, bc *baselineCache) error {
 	logging.Debug("Testing XSS", map[string]interface{}{
-		"url":           endpoint.URL,
-		"method":        endpoint.Method,
-		"payloads_count": len(payloads),
+		"url":            endpoint.URL,
+		"method":         endpoint.Method,
+		"payloads_count": len(tr.config.XSSPayloads),
 	})
 
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	// First, send a request with no payload to get a baseline response
-	baselineReq, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
+	baseline, err := tr.getBaseline(endpoint, bc)
 	if err != nil {
-		logging.Error("Failed to create baseline request", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("failed to create baseline request: %v", err)
+		return err
 	}
-	baselineReq.SetBasicAuth(auth.Username, auth.Password)
 
-	baselineResp, err := client.Do(baselineReq)
-	if err != nil {
-		logging.Error("Baseline request failed", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("baseline request failed: %v", err)
-	}
-	defer baselineResp.Body.Close()
-
-	// If baseline is unauthorized, we can't continue the XSS test.
-	if baselineResp.StatusCode == http.StatusUnauthorized || baselineResp.StatusCode == http.StatusForbidden {
+	if baseline.statusCode == http.StatusUnauthorized || baseline.statusCode == http.StatusForbidden {
 		logging.Warn("Cannot perform XSS test", map[string]interface{}{
 			"url":    endpoint.URL,
-			"status": baselineResp.StatusCode,
+			"status": baseline.statusCode,
 		})
-		return fmt.Errorf("cannot perform XSS test: baseline request failed with status %d", baselineResp.StatusCode)
+		return fmt.Errorf("cannot perform XSS test: baseline request failed with status %d", baseline.statusCode)
 	}
 
-	baselineBody, err := io.ReadAll(baselineResp.Body)
-	if err != nil {
-		logging.Error("Failed to read baseline response body", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("failed to read baseline response body: %v", err)
-	}
+	baselineBody := string(baseline.body)
 
-	for i, payload := range payloads {
+	for i, payload := range tr.config.XSSPayloads {
 		logging.Debug("Testing XSS payload", map[string]interface{}{
 			"url":     endpoint.URL,
 			"payload": payload,
 			"index":   i,
 		})
 
-		// Inject payload into the body
 		reqBody := strings.Replace(endpoint.Body, "\"value\"", fmt.Sprintf("\"%s\"", payload), -1)
 		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(reqBody))
 		if err != nil {
@@ -556,9 +487,9 @@ func testXSS(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
 			})
 			return fmt.Errorf("failed to create request: %v", err)
 		}
-		req.SetBasicAuth(auth.Username, auth.Password)
+		req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
 
-		resp, err := client.Do(req)
+		resp, err := tr.doRequest(req)
 		if err != nil {
 			logging.Error("Request failed", map[string]interface{}{
 				"url":     endpoint.URL,
@@ -567,9 +498,8 @@ func testXSS(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
 			})
 			return fmt.Errorf("request failed: %v", err)
 		}
-		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := readBody(resp)
 		if err != nil {
 			logging.Error("Failed to read response body", map[string]interface{}{
 				"url":     endpoint.URL,
@@ -579,8 +509,7 @@ func testXSS(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
 			return fmt.Errorf("failed to read response body: %v", err)
 		}
 
-		// Check for indicators of successful XSS
-		if indicatorsOfXSS(string(body), string(baselineBody), payload) {
+		if indicatorsOfXSS(string(body), baselineBody, payload) {
 			logging.Warn("Potential XSS detected", map[string]interface{}{
 				"url":     endpoint.URL,
 				"payload": payload,
@@ -591,38 +520,32 @@ func testXSS(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
 	return nil
 }
 
-// indicatorsOfXSS checks for indicators of successful XSS
 func indicatorsOfXSS(responseBody, baselineBody, payload string) bool {
-	// Check if the payload appears in the response without proper sanitization
 	if strings.Contains(responseBody, payload) && !strings.Contains(baselineBody, payload) {
-		// Check if the payload appears in a script context or as HTML
 		scriptContext := strings.Contains(responseBody, fmt.Sprintf("<script>%s</script>", payload)) ||
 			strings.Contains(responseBody, fmt.Sprintf("onload=\"%s\"", payload)) ||
 			strings.Contains(responseBody, fmt.Sprintf("onerror=\"%s\"", payload)) ||
 			strings.Contains(responseBody, fmt.Sprintf("onclick=\"%s\"", payload))
-		
+
 		if scriptContext {
 			return true
 		}
-		
-		// Check if payload appears in HTML tags
+
 		if strings.Contains(responseBody, fmt.Sprintf("<%s>", payload)) ||
 			strings.Contains(responseBody, fmt.Sprintf(">%s<", payload)) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
-// testHeaderSecurity analyzes security headers
-func testHeaderSecurity(endpoint types.APIEndpoint, auth Auth, customHeaders map[string]string) error {
+func (tr *testRunner) testHeaderSecurity(endpoint types.APIEndpoint, _ *baselineCache) error {
 	logging.Debug("Testing header security", map[string]interface{}{
-		"url": endpoint.URL,
+		"url":    endpoint.URL,
 		"method": endpoint.Method,
 	})
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
 	if err != nil {
 		logging.Error("Failed to create request", map[string]interface{}{
@@ -631,14 +554,13 @@ func testHeaderSecurity(endpoint types.APIEndpoint, auth Auth, customHeaders map
 		})
 		return fmt.Errorf("failed to create request: %v", err)
 	}
-	req.SetBasicAuth(auth.Username, auth.Password)
+	req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
 
-	// Add custom headers
-	for key, value := range customHeaders {
+	for key, value := range tr.config.Headers {
 		req.Header.Set(key, value)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := tr.doRequest(req)
 	if err != nil {
 		logging.Error("Request failed", map[string]interface{}{
 			"url":   endpoint.URL,
@@ -646,18 +568,16 @@ func testHeaderSecurity(endpoint types.APIEndpoint, auth Auth, customHeaders map
 		})
 		return fmt.Errorf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	drainBody(resp)
 
-	// Analyze security headers
-	issues := []string{}
+	issues := make([]string, 0, 10)
 
-	// Check for missing security headers
 	securityHeaders := map[string]string{
-		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":        "DENY or SAMEORIGIN",
-		"X-XSS-Protection":       "1; mode=block",
+		"X-Content-Type-Options":    "nosniff",
+		"X-Frame-Options":           "DENY or SAMEORIGIN",
+		"X-XSS-Protection":          "1; mode=block",
 		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-		"Content-Security-Policy": "policy directives",
+		"Content-Security-Policy":   "policy directives",
 	}
 
 	for header, recommended := range securityHeaders {
@@ -666,35 +586,30 @@ func testHeaderSecurity(endpoint types.APIEndpoint, auth Auth, customHeaders map
 		}
 	}
 
-	// Check for insecure headers
 	insecureHeaders := []string{
 		"X-Powered-By",
 		"Server",
 	}
 
 	for _, header := range insecureHeaders {
-		if resp.Header.Get(header) != "" {
-			issues = append(issues, fmt.Sprintf("Insecure information disclosure header: %s (%s)", header, resp.Header.Get(header)))
+		if val := resp.Header.Get(header); val != "" {
+			issues = append(issues, fmt.Sprintf("Insecure information disclosure header: %s (%s)", header, val))
 		}
 	}
 
-	// Check CORS settings
-	accessControlAllowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
-	if accessControlAllowOrigin == "*" {
+	if resp.Header.Get("Access-Control-Allow-Origin") == "*" {
 		issues = append(issues, "Insecure CORS policy: Access-Control-Allow-Origin set to wildcard (*)")
 	}
 
-	// Check cookie security
-	setCookie := resp.Header.Values("Set-Cookie")
-	for _, cookie := range setCookie {
+	for _, cookie := range resp.Header.Values("Set-Cookie") {
 		if !strings.Contains(cookie, "Secure") {
-			issues = append(issues, "Cookie missing Secure attribute: " + cookie)
+			issues = append(issues, "Cookie missing Secure attribute: "+cookie)
 		}
 		if !strings.Contains(cookie, "HttpOnly") {
-			issues = append(issues, "Cookie missing HttpOnly attribute: " + cookie)
+			issues = append(issues, "Cookie missing HttpOnly attribute: "+cookie)
 		}
 		if !strings.Contains(cookie, "SameSite") {
-			issues = append(issues, "Cookie missing SameSite attribute: " + cookie)
+			issues = append(issues, "Cookie missing SameSite attribute: "+cookie)
 		}
 	}
 
@@ -709,15 +624,12 @@ func testHeaderSecurity(endpoint types.APIEndpoint, auth Auth, customHeaders map
 	return nil
 }
 
-// testAuthBypass tests for authentication bypass vulnerabilities
-func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
+func (tr *testRunner) testAuthBypass(endpoint types.APIEndpoint, _ *baselineCache) error {
 	logging.Debug("Testing authentication bypass", map[string]interface{}{
-		"url": endpoint.URL,
-		"method": endpoint.Method,
-		"has_auth": auth.Username != "" && auth.Password != "",
+		"url":      endpoint.URL,
+		"method":   endpoint.Method,
+		"has_auth": tr.config.Auth.Username != "" && tr.config.Auth.Password != "",
 	})
-
-	client := &http.Client{Timeout: 10 * time.Second}
 
 	// Test 1: Request without authentication
 	req1, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
@@ -729,7 +641,7 @@ func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
 		return fmt.Errorf("failed to create request without auth: %v", err)
 	}
 
-	resp1, err := client.Do(req1)
+	resp1, err := tr.doRequest(req1)
 	if err != nil {
 		logging.Error("Request without auth failed", map[string]interface{}{
 			"url":   endpoint.URL,
@@ -737,20 +649,18 @@ func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
 		})
 		return fmt.Errorf("request without auth failed: %v", err)
 	}
-	defer resp1.Body.Close()
+	drainBody(resp1)
 
-	// If we can access the endpoint without auth when it should require it, that's a bypass
 	if resp1.StatusCode == http.StatusOK || resp1.StatusCode == http.StatusCreated || resp1.StatusCode == http.StatusAccepted {
 		logging.Warn("Authentication bypass detected", map[string]interface{}{
-			"url": endpoint.URL,
+			"url":                 endpoint.URL,
 			"status_without_auth": resp1.StatusCode,
 		})
 		return AuthBypassError{fmt.Sprintf("authentication bypass detected: endpoint accessible without authentication (status: %d)", resp1.StatusCode)}
 	}
 
-	// Test 2: Request with modified authentication tokens
-	if auth.Username != "" && auth.Password != "" {
-		// Test with invalid credentials
+	// Test 2: Request with invalid credentials
+	if tr.config.Auth.Username != "" && tr.config.Auth.Password != "" {
 		req2, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
 		if err != nil {
 			logging.Error("Failed to create request with invalid auth", map[string]interface{}{
@@ -761,7 +671,7 @@ func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
 		}
 		req2.SetBasicAuth("invalid_user", "invalid_pass")
 
-		resp2, err := client.Do(req2)
+		resp2, err := tr.doRequest(req2)
 		if err != nil {
 			logging.Error("Request with invalid auth failed", map[string]interface{}{
 				"url":   endpoint.URL,
@@ -769,9 +679,8 @@ func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
 			})
 			return fmt.Errorf("request with invalid auth failed: %v", err)
 		}
-		defer resp2.Body.Close()
+		drainBody(resp2)
 
-		// If invalid credentials still grant access, that's a bypass
 		if resp2.StatusCode == http.StatusOK || resp2.StatusCode == http.StatusCreated || resp2.StatusCode == http.StatusAccepted {
 			logging.Warn("Authentication bypass with invalid credentials", map[string]interface{}{
 				"url": endpoint.URL,
@@ -783,9 +692,9 @@ func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
 
 	// Test 3: Check for common auth bypass headers
 	bypassHeaders := map[string]string{
-		"X-Forwarded-For": "127.0.0.1",
-		"X-Original-URL":  endpoint.URL,
-		"X-Rewrite-URL":   endpoint.URL,
+		"X-Forwarded-For":  "127.0.0.1",
+		"X-Original-URL":   endpoint.URL,
+		"X-Rewrite-URL":    endpoint.URL,
 		"X-Originating-IP": "127.0.0.1",
 	}
 
@@ -797,13 +706,12 @@ func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
 		})
 		return fmt.Errorf("failed to create request with bypass headers: %v", err)
 	}
-	
-	// Add bypass headers
+
 	for key, value := range bypassHeaders {
 		req3.Header.Set(key, value)
 	}
 
-	resp3, err := client.Do(req3)
+	resp3, err := tr.doRequest(req3)
 	if err != nil {
 		logging.Error("Request with bypass headers failed", map[string]interface{}{
 			"url":   endpoint.URL,
@@ -811,9 +719,8 @@ func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
 		})
 		return fmt.Errorf("request with bypass headers failed: %v", err)
 	}
-	defer resp3.Body.Close()
+	drainBody(resp3)
 
-	// If adding bypass headers grants access, that's a bypass
 	if resp3.StatusCode == http.StatusOK || resp3.StatusCode == http.StatusCreated || resp3.StatusCode == http.StatusAccepted {
 		logging.Warn("Authentication bypass with headers", map[string]interface{}{
 			"url": endpoint.URL,
@@ -825,16 +732,246 @@ func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
 	return nil
 }
 
+func (tr *testRunner) testParameterTampering(endpoint types.APIEndpoint, _ *baselineCache) error {
+	logging.Debug("Testing parameter tampering", map[string]interface{}{
+		"url":    endpoint.URL,
+		"method": endpoint.Method,
+	})
+
+	// Test 1: Modify numeric parameters in the body
+	if strings.Contains(endpoint.Body, "\"key\":") {
+		modifiedBody := strings.Replace(endpoint.Body, "\"value\"", "\"12345\"", -1)
+
+		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(modifiedBody))
+		if err != nil {
+			logging.Error("Failed to create request with modified parameters", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("failed to create request with modified parameters: %v", err)
+		}
+		req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
+
+		resp, err := tr.doRequest(req)
+		if err != nil {
+			logging.Error("Request with modified parameters failed", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("request with modified parameters failed: %v", err)
+		}
+		drainBody(resp)
+
+		logging.Debug("Parameter modification test completed", map[string]interface{}{
+			"url":    endpoint.URL,
+			"status": resp.StatusCode,
+		})
+	}
+
+	// Test 2: Add extra parameters
+	if endpoint.Body != "" {
+		extraParamBody := strings.TrimRight(endpoint.Body, "}") + ", \"extra_param\": \"tampered_value\"}"
+
+		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(extraParamBody))
+		if err != nil {
+			logging.Error("Failed to create request with extra parameters", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("failed to create request with extra parameters: %v", err)
+		}
+		req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
+
+		resp, err := tr.doRequest(req)
+		if err != nil {
+			logging.Error("Request with extra parameters failed", map[string]interface{}{
+				"url":   endpoint.URL,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("request with extra parameters failed: %v", err)
+		}
+		drainBody(resp)
+
+		logging.Debug("Extra parameter test completed", map[string]interface{}{
+			"url":                      endpoint.URL,
+			"status_with_extra_params": resp.StatusCode,
+		})
+	}
+
+	// Test 3: Test for IDOR
+	if strings.Contains(endpoint.URL, "/") {
+		modifiedURL := strings.Replace(endpoint.URL, "1", "2", -1)
+		if modifiedURL != endpoint.URL {
+			req, err := http.NewRequest(endpoint.Method, modifiedURL, bytes.NewBufferString(endpoint.Body))
+			if err != nil {
+				logging.Error("Failed to create request with modified URL", map[string]interface{}{
+					"url":   modifiedURL,
+					"error": err.Error(),
+				})
+				return fmt.Errorf("failed to create request with modified URL: %v", err)
+			}
+			req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
+
+			resp, err := tr.doRequest(req)
+			if err != nil {
+				logging.Error("Request with modified URL failed", map[string]interface{}{
+					"url":   modifiedURL,
+					"error": err.Error(),
+				})
+				return fmt.Errorf("request with modified URL failed: %v", err)
+			}
+			drainBody(resp)
+
+			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted {
+				logging.Warn("Potential IDOR detected", map[string]interface{}{
+					"original_url": endpoint.URL,
+					"modified_url": modifiedURL,
+					"status":       resp.StatusCode,
+				})
+				return ParameterTamperingError{fmt.Sprintf("potential IDOR detected: able to access %s (status: %d)", modifiedURL, resp.StatusCode)}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (tr *testRunner) testNoSQLInjection(endpoint types.APIEndpoint, bc *baselineCache) error {
+	logging.Debug("Testing NoSQL injection", map[string]interface{}{
+		"url":            endpoint.URL,
+		"method":         endpoint.Method,
+		"payloads_count": len(tr.config.NoSQLPayloads),
+	})
+
+	payloads := tr.config.NoSQLPayloads
+	if len(payloads) == 0 {
+		payloads = []string{
+			"{$ne: null}",
+			"{$gt: ''}",
+			"{$or: [1,1]}",
+			"{$where: 'sleep(100)'}",
+			"{$regex: '.*'}",
+			"{$exists: true}",
+			"{$in: [1,2,3]}",
+		}
+	}
+
+	baseline, err := tr.getBaseline(endpoint, bc)
+	if err != nil {
+		return err
+	}
+
+	if baseline.statusCode == http.StatusUnauthorized || baseline.statusCode == http.StatusForbidden {
+		logging.Warn("Cannot perform NoSQL injection test", map[string]interface{}{
+			"url":    endpoint.URL,
+			"status": baseline.statusCode,
+		})
+		return fmt.Errorf("cannot perform NoSQL injection test: baseline request failed with status %d", baseline.statusCode)
+	}
+
+	baselineBody := string(baseline.body)
+
+	for i, payload := range payloads {
+		logging.Debug("Testing NoSQL injection payload", map[string]interface{}{
+			"url":     endpoint.URL,
+			"payload": payload,
+			"index":   i,
+		})
+
+		reqBody := strings.Replace(endpoint.Body, "\"value\"", fmt.Sprintf("\"%s\"", payload), -1)
+		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(reqBody))
+		if err != nil {
+			logging.Error("Failed to create request", map[string]interface{}{
+				"url":     endpoint.URL,
+				"payload": payload,
+				"error":   err.Error(),
+			})
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+		req.SetBasicAuth(tr.config.Auth.Username, tr.config.Auth.Password)
+
+		resp, err := tr.doRequest(req)
+		if err != nil {
+			logging.Error("Request failed", map[string]interface{}{
+				"url":     endpoint.URL,
+				"payload": payload,
+				"error":   err.Error(),
+			})
+			return fmt.Errorf("request failed: %v", err)
+		}
+
+		body, err := readBody(resp)
+		if err != nil {
+			logging.Error("Failed to read response body", map[string]interface{}{
+				"url":     endpoint.URL,
+				"payload": payload,
+				"error":   err.Error(),
+			})
+			return fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		if indicatorsOfNoSQLInjection(string(body), baselineBody, payload) {
+			logging.Warn("Potential NoSQL injection detected", map[string]interface{}{
+				"url":     endpoint.URL,
+				"payload": payload,
+			})
+			return NoSQLInjectionError{fmt.Sprintf("potential NoSQL injection detected with payload: %s", payload)}
+		}
+	}
+	return nil
+}
+
+func indicatorsOfNoSQLInjection(responseBody, baselineBody, payload string) bool {
+	nosqlErrorMessages := []string{
+		"MongoError",
+		"MongoServerError",
+		"MongoDB error",
+		"Cannot create property",
+		"Unexpected token",
+		"SyntaxError",
+		"CastError",
+		"ValidationError",
+		"MongoCursor",
+		"MongoTimeoutError",
+	}
+
+	for _, errorMsg := range nosqlErrorMessages {
+		if strings.Contains(responseBody, errorMsg) {
+			return true
+		}
+	}
+
+	if strings.Contains(responseBody, payload) && !strings.Contains(baselineBody, payload) {
+		return true
+	}
+
+	if len(responseBody) > len(baselineBody)*2 {
+		return true
+	}
+
+	if strings.Contains(responseBody, "{$") || strings.Contains(responseBody, "_id") {
+		return true
+	}
+
+	responseLines := strings.Split(responseBody, "\n")
+	baselineLines := strings.Split(baselineBody, "\n")
+	if len(responseLines) > int(float64(len(baselineLines))*1.5) {
+		return true
+	}
+
+	return false
+}
+
 func GenerateDetailedReport(results []types.EndpointResult) {
-	fmt.Println("\nAPI Security Scan Detailed Report")
-	fmt.Println("==================================")
+	var b strings.Builder
+	b.WriteString("\nAPI Security Scan Detailed Report\n")
+	b.WriteString("==================================\n")
 
 	for _, result := range results {
-		fmt.Printf("\nEndpoint: %s\n", result.URL)
-		fmt.Printf("Overall Score: %d/100\n", result.Score)
-		fmt.Println("Test Results:")
+		b.WriteString(fmt.Sprintf("\nEndpoint: %s\n", result.URL))
+		b.WriteString(fmt.Sprintf("Overall Score: %d/100\n", result.Score))
+		b.WriteString("Test Results:\n")
 
-		// Sort test results for consistent output
 		sort.Slice(result.Results, func(i, j int) bool {
 			return result.Results[i].TestName < result.Results[j].TestName
 		})
@@ -844,17 +981,19 @@ func GenerateDetailedReport(results []types.EndpointResult) {
 			if !testResult.Passed {
 				status = "FAILED"
 			}
-			fmt.Printf("- %s: %s\n", testResult.TestName, status)
-			fmt.Printf("  Details: %s\n", formatTestMessage(testResult.Message, result.URL))
+			b.WriteString(fmt.Sprintf("- %s: %s\n", testResult.TestName, status))
+			b.WriteString(fmt.Sprintf("  Details: %s\n", formatTestMessage(testResult.Message, result.URL)))
 		}
 
-		fmt.Println("Risk Assessment:")
-		fmt.Println(generateRiskAssessment(result))
-		fmt.Println("------------------------")
+		b.WriteString("Risk Assessment:\n")
+		b.WriteString(generateRiskAssessment(result))
+		b.WriteString("\n------------------------\n")
 	}
 
-	fmt.Println("\nOverall Security Assessment:")
-	fmt.Println(generateOverallAssessment(results))
+	b.WriteString("\nOverall Security Assessment:\n")
+	b.WriteString(generateOverallAssessment(results))
+	b.WriteString("\n")
+	fmt.Print(b.String())
 }
 
 func formatTestMessage(message string, url string) string {
@@ -904,88 +1043,103 @@ func generateOverallAssessment(results []types.EndpointResult) string {
 			}
 		}
 	}
-	averageScore := totalScore / len(results)
 
-	assessment := fmt.Sprintf("Average Security Score: %d/100\n", averageScore)
-	assessment += fmt.Sprintf("Critical Vulnerabilities Detected: %d\n\n", criticalVulnerabilities)
-
-	if averageScore >= 90 {
-		assessment += "Overall security posture is strong, but continuous monitoring is recommended."
-	} else if averageScore >= 70 {
-		assessment += "Moderate security risks detected. Address identified vulnerabilities promptly."
-	} else {
-		assessment += "Significant security risks identified. Immediate action is required to improve API security."
+	if len(results) == 0 {
+		return "No endpoints tested."
 	}
 
-	return assessment
+	averageScore := totalScore / len(results)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Average Security Score: %d/100\n", averageScore))
+	b.WriteString(fmt.Sprintf("Critical Vulnerabilities Detected: %d\n\n", criticalVulnerabilities))
+
+	if averageScore >= 90 {
+		b.WriteString("Overall security posture is strong, but continuous monitoring is recommended.")
+	} else if averageScore >= 70 {
+		b.WriteString("Moderate security risks detected. Address identified vulnerabilities promptly.")
+	} else {
+		b.WriteString("Significant security risks identified. Immediate action is required to improve API security.")
+	}
+
+	return b.String()
 }
 
 // GenerateJSONReport generates a JSON formatted report
 func GenerateJSONReport(results []types.EndpointResult) {
-	fmt.Println("{")
-	fmt.Printf("  \"scan_results\": [")
-	for i, result := range results {
-		if i > 0 {
-			fmt.Println(",")
-		}
-		fmt.Printf("\n    {")
-		fmt.Printf("\n      \"endpoint\": \"%s\",", result.URL)
-		fmt.Printf("\n      \"score\": %d,", result.Score)
-		fmt.Printf("\n      \"tests\": [")
-		for j, testResult := range result.Results {
-			if j > 0 {
-				fmt.Printf(",")
-			}
-			fmt.Printf("\n        {")
-			fmt.Printf("\n          \"name\": \"%s\",", testResult.TestName)
-			fmt.Printf("\n          \"passed\": %t,", testResult.Passed)
-			fmt.Printf("\n          \"message\": \"%s\"", testResult.Message)
-			fmt.Printf("\n        }")
-		}
-		fmt.Printf("\n      ],")
-		fmt.Printf("\n      \"risk_assessment\": \"%s\"", generateRiskAssessment(result))
-		fmt.Printf("\n    }")
+	output := struct {
+		ScanResults       []jsonEndpointResult `json:"scan_results"`
+		OverallAssessment string               `json:"overall_assessment"`
+	}{
+		ScanResults:       make([]jsonEndpointResult, len(results)),
+		OverallAssessment: generateOverallAssessment(results),
 	}
-	fmt.Println("\n  ],")
-	fmt.Printf("  \"overall_assessment\": \"%s\"\n", generateOverallAssessment(results))
-	fmt.Println("}")
+
+	for i, result := range results {
+		output.ScanResults[i] = jsonEndpointResult{
+			Endpoint:         result.URL,
+			Score:            result.Score,
+			Tests:            make([]jsonTestResult, len(result.Results)),
+			RiskAssessment:   generateRiskAssessment(result),
+		}
+		for j, tr := range result.Results {
+			output.ScanResults[i].Tests[j] = jsonTestResult{
+				Name:    tr.TestName,
+				Passed:  tr.Passed,
+				Message: tr.Message,
+			}
+		}
+	}
+
+	data, _ := json.MarshalIndent(output, "", "  ")
+	fmt.Println(string(data))
+}
+
+type jsonEndpointResult struct {
+	Endpoint       string           `json:"endpoint"`
+	Score          int              `json:"score"`
+	Tests          []jsonTestResult `json:"tests"`
+	RiskAssessment string           `json:"risk_assessment"`
+}
+
+type jsonTestResult struct {
+	Name    string `json:"name"`
+	Passed  bool   `json:"passed"`
+	Message string `json:"message"`
 }
 
 // GenerateHTMLReport generates an HTML formatted report
 func GenerateHTMLReport(results []types.EndpointResult) {
-	fmt.Println("<!DOCTYPE html>")
-	fmt.Println("<html>")
-	fmt.Println("<head>")
-	fmt.Println("  <title>API Security Scan Report</title>")
-	fmt.Println("  <style>")
-	fmt.Println("    body { font-family: Arial, sans-serif; margin: 20px; }")
-	fmt.Println("    .header { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }")
-	fmt.Println("    .endpoint { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }")
-	fmt.Println("    .passed { color: green; }")
-	fmt.Println("    .failed { color: red; }")
-	fmt.Println("    .score-high { color: green; font-weight: bold; }")
-	fmt.Println("    .score-medium { color: orange; font-weight: bold; }")
-	fmt.Println("    .score-low { color: red; font-weight: bold; }")
-	fmt.Println("  </style>")
-	fmt.Println("</head>")
-	fmt.Println("<body>")
-	fmt.Println("  <h1>API Security Scan Detailed Report</h1>")
-	
+	var b strings.Builder
+	b.WriteString("<!DOCTYPE html>\n<html>\n<head>\n")
+	b.WriteString("  <title>API Security Scan Report</title>\n")
+	b.WriteString(`  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .header { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }
+    .endpoint { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+    .passed { color: green; } .failed { color: red; }
+    .score-high { color: green; font-weight: bold; }
+    .score-medium { color: orange; font-weight: bold; }
+    .score-low { color: red; font-weight: bold; }
+  </style>
+`)
+	b.WriteString("</head>\n<body>\n")
+	b.WriteString("  <h1>API Security Scan Detailed Report</h1>\n")
+
 	for _, result := range results {
-		fmt.Printf("  <div class=\"endpoint\">\n")
-		fmt.Printf("    <h2>Endpoint: %s</h2>\n", result.URL)
-		
-		// Score with color coding
+		b.WriteString("  <div class=\"endpoint\">\n")
+		b.WriteString(fmt.Sprintf("    <h2>Endpoint: %s</h2>\n", result.URL))
+
 		scoreClass := "score-low"
 		if result.Score >= 90 {
 			scoreClass = "score-high"
 		} else if result.Score >= 70 {
 			scoreClass = "score-medium"
 		}
-		fmt.Printf("    <p><strong>Overall Score:</strong> <span class=\"%s\">%d/100</span></p>\n", scoreClass, result.Score)
-		
-		fmt.Println("    <h3>Test Results:</h3>")
-		fmt.Println("    <ul>")
+		b.WriteString(fmt.Sprintf("    <p><strong>Overall Score:</strong> <span class=\"%s\">%d/100</span></p>\n", scoreClass, result.Score))
+
+		b.WriteString("    <h3>Test Results:</h3>\n")
+		b.WriteString("    <ul>\n")
 		for _, testResult := range result.Results {
 			statusClass := "passed"
 			statusText := "PASSED"
@@ -993,35 +1147,33 @@ func GenerateHTMLReport(results []types.EndpointResult) {
 				statusClass = "failed"
 				statusText = "FAILED"
 			}
-			fmt.Printf("      <li><strong>%s:</strong> <span class=\"%s\">%s</span> - %s</li>\n", 
-				testResult.TestName, statusClass, statusText, testResult.Message)
+			b.WriteString(fmt.Sprintf("      <li><strong>%s:</strong> <span class=\"%s\">%s</span> - %s</li>\n",
+				testResult.TestName, statusClass, statusText, testResult.Message))
 		}
-		fmt.Println("    </ul>")
-		
-		fmt.Println("    <h3>Risk Assessment:</h3>")
-		fmt.Printf("    <p>%s</p>\n", generateRiskAssessment(result))
-		fmt.Println("  </div>")
+		b.WriteString("    </ul>\n")
+
+		b.WriteString("    <h3>Risk Assessment:</h3>\n")
+		b.WriteString(fmt.Sprintf("    <p>%s</p>\n", generateRiskAssessment(result)))
+		b.WriteString("  </div>\n")
 	}
-	
-	fmt.Println("  <div class=\"endpoint\">")
-	fmt.Println("    <h2>Overall Security Assessment</h2>")
-	fmt.Printf("    <p>%s</p>\n", generateOverallAssessment(results))
-	fmt.Println("  </div>")
-	
-	fmt.Println("</body>")
-	fmt.Println("</html>")
+
+	b.WriteString("  <div class=\"endpoint\">\n")
+	b.WriteString("    <h2>Overall Security Assessment</h2>\n")
+	b.WriteString(fmt.Sprintf("    <p>%s</p>\n", generateOverallAssessment(results)))
+	b.WriteString("  </div>\n")
+	b.WriteString("</body>\n</html>\n")
+	fmt.Print(b.String())
 }
 
 // GenerateCSVReport generates a CSV formatted report
 func GenerateCSVReport(results []types.EndpointResult) {
-	// CSV header
-	fmt.Println("Endpoint,Score,Test Name,Passed,Message,Risk Assessment")
-	
+	var b strings.Builder
+	b.WriteString("Endpoint,Score,Test Name,Passed,Message,Risk Assessment\n")
+
 	for _, result := range results {
-		// Escape quotes in fields
 		endpoint := strings.ReplaceAll(result.URL, "\"", "\"\"")
 		riskAssessment := strings.ReplaceAll(generateRiskAssessment(result), "\"", "\"\"")
-		
+
 		for _, testResult := range result.Results {
 			testName := strings.ReplaceAll(testResult.TestName, "\"", "\"\"")
 			message := strings.ReplaceAll(testResult.Message, "\"", "\"\"")
@@ -1029,322 +1181,94 @@ func GenerateCSVReport(results []types.EndpointResult) {
 			if !testResult.Passed {
 				passed = "false"
 			}
-			
-			fmt.Printf("\"%s\",%d,\"%s\",%s,\"%s\",\"%s\"\n", 
-				endpoint, result.Score, testName, passed, message, riskAssessment)
+
+			b.WriteString(fmt.Sprintf("\"%s\",%d,\"%s\",%s,\"%s\",\"%s\"\n",
+				endpoint, result.Score, testName, passed, message, riskAssessment))
 		}
 	}
-	
-	// Add overall assessment
+
 	overall := strings.ReplaceAll(generateOverallAssessment(results), "\"", "\"\"")
-	fmt.Printf("\"OVERALL\",,\"\",\"\",\"\",\"%s\"\n", overall)
+	b.WriteString(fmt.Sprintf("\"OVERALL\",,\"\",\"\",\"\",\"%s\"\n", overall))
+	fmt.Print(b.String())
 }
 
 // GenerateXMLReport generates an XML formatted report
 func GenerateXMLReport(results []types.EndpointResult) {
-	fmt.Println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
-	fmt.Println("<api_security_scan>")
-	fmt.Println("  <scan_results>")
-	
+	var b strings.Builder
+	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+	b.WriteString("<api_security_scan>\n")
+	b.WriteString("  <scan_results>\n")
+
 	for _, result := range results {
-		fmt.Println("    <endpoint>")
-		fmt.Printf("      <url>%s</url>\n", result.URL)
-		fmt.Printf("      <score>%d</score>\n", result.Score)
-		fmt.Println("      <tests>")
-		
+		b.WriteString("    <endpoint>\n")
+		b.WriteString(fmt.Sprintf("      <url>%s</url>\n", result.URL))
+		b.WriteString(fmt.Sprintf("      <score>%d</score>\n", result.Score))
+		b.WriteString("      <tests>\n")
+
 		for _, testResult := range result.Results {
-			fmt.Println("        <test>")
-			fmt.Printf("          <name>%s</name>\n", testResult.TestName)
-			fmt.Printf("          <passed>%t</passed>\n", testResult.Passed)
-			fmt.Printf("          <message>%s</message>\n", testResult.Message)
-			fmt.Println("        </test>")
+			b.WriteString("        <test>\n")
+			b.WriteString(fmt.Sprintf("          <name>%s</name>\n", testResult.TestName))
+			b.WriteString(fmt.Sprintf("          <passed>%t</passed>\n", testResult.Passed))
+			b.WriteString(fmt.Sprintf("          <message>%s</message>\n", testResult.Message))
+			b.WriteString("        </test>\n")
 		}
-		
-		fmt.Println("      </tests>")
-		fmt.Printf("      <risk_assessment>%s</risk_assessment>\n", generateRiskAssessment(result))
-		fmt.Println("    </endpoint>")
+
+		b.WriteString("      </tests>\n")
+		b.WriteString(fmt.Sprintf("      <risk_assessment>%s</risk_assessment>\n", generateRiskAssessment(result)))
+		b.WriteString("    </endpoint>\n")
 	}
-	
-	fmt.Println("  </scan_results>")
-	fmt.Printf("  <overall_assessment>%s</overall_assessment>\n", generateOverallAssessment(results))
-	fmt.Println("</api_security_scan>")
+
+	b.WriteString("  </scan_results>\n")
+	b.WriteString(fmt.Sprintf("  <overall_assessment>%s</overall_assessment>\n", generateOverallAssessment(results)))
+	b.WriteString("</api_security_scan>\n")
+	fmt.Print(b.String())
 }
 
+// Backward-compatible wrapper functions for tests
+// These use the default HTTP transport to allow test mocking.
 
-// testParameterTampering tests for parameter manipulation vulnerabilities
+func newTestRunnerForTests(config *Config) *testRunner {
+	tr := newTestRunner(config)
+	tr.client = &http.Client{Timeout: 10 * time.Second}
+	return tr
+}
+
+func testAuth(endpoint types.APIEndpoint, auth Auth) error {
+	tr := newTestRunnerForTests(&Config{Auth: auth})
+	return tr.testAuth(endpoint, nil)
+}
+
+func testHTTPMethod(endpoint types.APIEndpoint, auth Auth) error {
+	tr := newTestRunnerForTests(&Config{Auth: auth})
+	return tr.testHTTPMethod(endpoint, nil)
+}
+
+func testInjection(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
+	tr := newTestRunnerForTests(&Config{Auth: auth, InjectionPayloads: payloads})
+	return tr.testInjection(endpoint, newBaselineCache())
+}
+
+func testXSS(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
+	tr := newTestRunnerForTests(&Config{Auth: auth, XSSPayloads: payloads})
+	return tr.testXSS(endpoint, newBaselineCache())
+}
+
+func testHeaderSecurity(endpoint types.APIEndpoint, auth Auth, customHeaders map[string]string) error {
+	tr := newTestRunnerForTests(&Config{Auth: auth, Headers: customHeaders})
+	return tr.testHeaderSecurity(endpoint, nil)
+}
+
+func testAuthBypass(endpoint types.APIEndpoint, auth Auth) error {
+	tr := newTestRunnerForTests(&Config{Auth: auth})
+	return tr.testAuthBypass(endpoint, nil)
+}
+
 func testParameterTampering(endpoint types.APIEndpoint, auth Auth) error {
-	logging.Debug("Testing parameter tampering", map[string]interface{}{
-		"url": endpoint.URL,
-		"method": endpoint.Method,
-	})
-
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	// Test 1: Modify numeric parameters in the body
-	if strings.Contains(endpoint.Body, "\"key\":") {
-		// Try replacing values with different numeric values
-		modifiedBody := strings.Replace(endpoint.Body, "\"value\"", "\"12345\"", -1)
-		
-		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(modifiedBody))
-		if err != nil {
-			logging.Error("Failed to create request with modified parameters", map[string]interface{}{
-				"url":   endpoint.URL,
-				"error": err.Error(),
-			})
-			return fmt.Errorf("failed to create request with modified parameters: %v", err)
-		}
-		req.SetBasicAuth(auth.Username, auth.Password)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			logging.Error("Request with modified parameters failed", map[string]interface{}{
-				"url":   endpoint.URL,
-				"error": err.Error(),
-			})
-			return fmt.Errorf("request with modified parameters failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		// If changing parameters still grants the same access, that might indicate a vulnerability
-		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted {
-			// This is normal behavior, not necessarily a vulnerability
-			logging.Debug("Parameter modification test completed", map[string]interface{}{
-				"url": endpoint.URL,
-				"status": resp.StatusCode,
-			})
-		}
-	}
-
-	// Test 2: Add extra parameters
-	if endpoint.Body != "" {
-		extraParamBody := strings.TrimRight(endpoint.Body, "}") + ", \"extra_param\": \"tampered_value\"}"
-		
-		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(extraParamBody))
-		if err != nil {
-			logging.Error("Failed to create request with extra parameters", map[string]interface{}{
-				"url":   endpoint.URL,
-				"error": err.Error(),
-			})
-			return fmt.Errorf("failed to create request with extra parameters: %v", err)
-		}
-		req.SetBasicAuth(auth.Username, auth.Password)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			logging.Error("Request with extra parameters failed", map[string]interface{}{
-				"url":   endpoint.URL,
-				"error": err.Error(),
-			})
-			return fmt.Errorf("request with extra parameters failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		// If adding extra parameters still grants access, that might indicate poor input validation
-		logging.Debug("Extra parameter test completed", map[string]interface{}{
-			"url": endpoint.URL,
-			"status_with_extra_params": resp.StatusCode,
-		})
-	}
-
-	// Test 3: Test for IDOR (Insecure Direct Object Reference) by trying to access different resource IDs
-	// This is a simplified test - in a real implementation, this would be more sophisticated
-	if strings.Contains(endpoint.URL, "/") {
-		// Try to access a different resource by modifying the URL
-		modifiedURL := strings.Replace(endpoint.URL, "1", "2", -1)
-		if modifiedURL != endpoint.URL {
-			req, err := http.NewRequest(endpoint.Method, modifiedURL, bytes.NewBufferString(endpoint.Body))
-			if err != nil {
-				logging.Error("Failed to create request with modified URL", map[string]interface{}{
-					"url":   modifiedURL,
-					"error": err.Error(),
-				})
-				return fmt.Errorf("failed to create request with modified URL: %v", err)
-			}
-			req.SetBasicAuth(auth.Username, auth.Password)
-
-			resp, err := client.Do(req)
-			if err != nil {
-				logging.Error("Request with modified URL failed", map[string]interface{}{
-					"url":   modifiedURL,
-					"error": err.Error(),
-				})
-				return fmt.Errorf("request with modified URL failed: %v", err)
-			}
-			defer resp.Body.Close()
-
-			// If we can access a different resource, that might indicate an IDOR vulnerability
-			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted {
-				logging.Warn("Potential IDOR detected", map[string]interface{}{
-					"original_url": endpoint.URL,
-					"modified_url": modifiedURL,
-					"status": resp.StatusCode,
-				})
-				return ParameterTamperingError{fmt.Sprintf("potential IDOR detected: able to access %s (status: %d)", modifiedURL, resp.StatusCode)}
-			}
-		}
-	}
-
-	return nil
+	tr := newTestRunnerForTests(&Config{Auth: auth})
+	return tr.testParameterTampering(endpoint, nil)
 }
 
-// testNoSQLInjection tests for NoSQL injection vulnerabilities
 func testNoSQLInjection(endpoint types.APIEndpoint, auth Auth, payloads []string) error {
-	logging.Debug("Testing NoSQL injection", map[string]interface{}{
-		"url":           endpoint.URL,
-		"method":        endpoint.Method,
-		"payloads_count": len(payloads),
-	})
-
-	// Set default NoSQL payloads if none provided
-	if len(payloads) == 0 {
-		payloads = []string{
-			"{$ne: null}",
-			"{$gt: ''}",
-			"{$or: [1,1]}",
-			"{$where: 'sleep(100)'}",
-			"{$regex: '.*'}",
-			"{$exists: true}",
-			"{$in: [1,2,3]}",
-		}
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	// First, send a request with no payload to get a baseline response
-	baselineReq, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(endpoint.Body))
-	if err != nil {
-		logging.Error("Failed to create baseline request", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("failed to create baseline request: %v", err)
-	}
-	baselineReq.SetBasicAuth(auth.Username, auth.Password)
-
-	baselineResp, err := client.Do(baselineReq)
-	if err != nil {
-		logging.Error("Baseline request failed", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("baseline request failed: %v", err)
-	}
-	defer baselineResp.Body.Close()
-
-	// If baseline is unauthorized, we can't continue the NoSQL injection test.
-	if baselineResp.StatusCode == http.StatusUnauthorized || baselineResp.StatusCode == http.StatusForbidden {
-		logging.Warn("Cannot perform NoSQL injection test", map[string]interface{}{
-			"url":    endpoint.URL,
-			"status": baselineResp.StatusCode,
-		})
-		return fmt.Errorf("cannot perform NoSQL injection test: baseline request failed with status %d", baselineResp.StatusCode)
-	}
-
-	baselineBody, err := io.ReadAll(baselineResp.Body)
-	if err != nil {
-		logging.Error("Failed to read baseline response body", map[string]interface{}{
-			"url":   endpoint.URL,
-			"error": err.Error(),
-		})
-		return fmt.Errorf("failed to read baseline response body: %v", err)
-	}
-
-	for i, payload := range payloads {
-		logging.Debug("Testing NoSQL injection payload", map[string]interface{}{
-			"url":     endpoint.URL,
-			"payload": payload,
-			"index":   i,
-		})
-
-		// Inject payload into the body
-		reqBody := strings.Replace(endpoint.Body, "\"value\"", fmt.Sprintf("\"%s\"", payload), -1)
-		req, err := http.NewRequest(endpoint.Method, endpoint.URL, bytes.NewBufferString(reqBody))
-		if err != nil {
-			logging.Error("Failed to create request", map[string]interface{}{
-				"url":     endpoint.URL,
-				"payload": payload,
-				"error":   err.Error(),
-			})
-			return fmt.Errorf("failed to create request: %v", err)
-		}
-		req.SetBasicAuth(auth.Username, auth.Password)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			logging.Error("Request failed", map[string]interface{}{
-				"url":     endpoint.URL,
-				"payload": payload,
-				"error":   err.Error(),
-			})
-			return fmt.Errorf("request failed: %v", err)
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			logging.Error("Failed to read response body", map[string]interface{}{
-				"url":     endpoint.URL,
-				"payload": payload,
-				"error":   err.Error(),
-			})
-			return fmt.Errorf("failed to read response body: %v", err)
-		}
-
-		// Check for indicators of successful NoSQL injection
-		if indicatorsOfNoSQLInjection(string(body), string(baselineBody), payload) {
-			logging.Warn("Potential NoSQL injection detected", map[string]interface{}{
-				"url":     endpoint.URL,
-				"payload": payload,
-			})
-			return NoSQLInjectionError{fmt.Sprintf("potential NoSQL injection detected with payload: %s", payload)}
-		}
-	}
-	return nil
-}
-
-// indicatorsOfNoSQLInjection checks for indicators of successful NoSQL injection
-func indicatorsOfNoSQLInjection(responseBody, baselineBody, payload string) bool {
-	// Check for NoSQL error messages
-	nosqlErrorMessages := []string{
-		"MongoError",
-		"MongoServerError",
-		"MongoDB error",
-		"Cannot create property",
-		"Unexpected token",
-		"SyntaxError",
-		"CastError",
-		"ValidationError",
-		"MongoCursor",
-		"MongoTimeoutError",
-	}
-
-	for _, errorMsg := range nosqlErrorMessages {
-		if strings.Contains(responseBody, errorMsg) {
-			return true
-		}
-	}
-
-	// Check if the payload appears in the response without proper sanitization
-	if strings.Contains(responseBody, payload) && !strings.Contains(baselineBody, payload) {
-		return true
-	}
-
-	// Check for changes in response structure (more data returned than expected)
-	if len(responseBody) > len(baselineBody)*2 {
-		return true
-	}
-
-	// Check for MongoDB operators in response
-	if strings.Contains(responseBody, "{$") || strings.Contains(responseBody, "_id") {
-		return true
-	}
-
-	// Check for successful bypass (different status code or more data)
-	responseLines := strings.Split(responseBody, "\n")
-	baselineLines := strings.Split(baselineBody, "\n")
-	if len(responseLines) > int(float64(len(baselineLines))*1.5) {
-		return true
-	}
-
-	return false
+	tr := newTestRunnerForTests(&Config{Auth: auth, NoSQLPayloads: payloads})
+	return tr.testNoSQLInjection(endpoint, newBaselineCache())
 }
