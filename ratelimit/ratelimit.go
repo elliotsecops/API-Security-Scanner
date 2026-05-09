@@ -7,44 +7,51 @@ import (
 	"api-security-scanner/logging"
 )
 
-// RateLimiter controls the rate of requests
+// RateLimiter controls the rate of requests using a token bucket algorithm
 type RateLimiter struct {
-	// For token bucket algorithm
-	mu            sync.Mutex
-	tokens        int
-	maxTokens     int
-	tokensPerSec  int
-	lastAddTokens time.Time
-
-	// For concurrent request limiting
+	mu               sync.Mutex
+	tokens           float64
+	maxTokens        float64
+	tokensPerSecond  float64
+	lastRefill       time.Time
 	concurrentLimiter chan struct{}
 }
 
 // NewRateLimiter creates a new rate limiter
 func NewRateLimiter(requestsPerSecond, maxConcurrentRequests int) *RateLimiter {
-	// Apply default values if not specified
 	if requestsPerSecond <= 0 {
-		requestsPerSecond = 10 // Default value
+		requestsPerSecond = 10
 	}
 
 	if maxConcurrentRequests <= 0 {
-		maxConcurrentRequests = 5 // Default value
+		maxConcurrentRequests = 5
 	}
 
 	rl := &RateLimiter{
-		tokens:            requestsPerSecond, // Start with a full bucket
-		maxTokens:         requestsPerSecond,
-		tokensPerSec:      requestsPerSecond,
-		lastAddTokens:     time.Now(),
+		tokens:            float64(requestsPerSecond),
+		maxTokens:         float64(requestsPerSecond),
+		tokensPerSecond:   float64(requestsPerSecond),
+		lastRefill:        time.Now(),
 		concurrentLimiter: make(chan struct{}, maxConcurrentRequests),
 	}
 
 	logging.Info("Rate limiter initialized", map[string]interface{}{
-		"requests_per_second":      requestsPerSecond,
-		"max_concurrent_requests":  maxConcurrentRequests,
+		"requests_per_second":     requestsPerSecond,
+		"max_concurrent_requests": maxConcurrentRequests,
 	})
 
 	return rl
+}
+
+// refill adds tokens based on elapsed time
+func (rl *RateLimiter) refill() {
+	now := time.Now()
+	elapsed := now.Sub(rl.lastRefill).Seconds()
+	rl.tokens += elapsed * rl.tokensPerSecond
+	if rl.tokens > rl.maxTokens {
+		rl.tokens = rl.maxTokens
+	}
+	rl.lastRefill = now
 }
 
 // Wait blocks until a token is available and a concurrent slot is available
@@ -56,54 +63,38 @@ func (rl *RateLimiter) Wait() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	// Add tokens based on time passed
-	now := time.Now()
-	secondsPassed := now.Sub(rl.lastAddTokens).Seconds()
-	tokensToAdd := int(secondsPassed * float64(rl.tokensPerSec))
-	
-	if tokensToAdd > 0 {
-		rl.tokens += tokensToAdd
-		if rl.tokens > rl.maxTokens {
-			rl.tokens = rl.maxTokens
-		}
-		rl.lastAddTokens = now
-	}
+	rl.refill()
 
-	// If we have tokens, consume one
-	if rl.tokens > 0 {
+	if rl.tokens >= 1 {
 		rl.tokens--
 		return
 	}
 
-	// If no tokens, calculate wait time and sleep
-	// We need to wait for the next token
-	timeToWait := time.Duration(1.0/float64(rl.tokensPerSec)*float64(time.Second)) - now.Sub(rl.lastAddTokens)%time.Duration(1.0/float64(rl.tokensPerSec)*float64(time.Second))
-	rl.mu.Unlock()
-	time.Sleep(timeToWait)
-	rl.mu.Lock()
-	
-	// Add tokens again after waiting
-	now = time.Now()
-	secondsPassed = now.Sub(rl.lastAddTokens).Seconds()
-	tokensToAdd = int(secondsPassed * float64(rl.tokensPerSec))
-	
-	if tokensToAdd > 0 {
-		rl.tokens += tokensToAdd
-		if rl.tokens > rl.maxTokens {
-			rl.tokens = rl.maxTokens
-		}
-		rl.lastAddTokens = now
+	// Calculate wait time for next token
+	tokensNeeded := 1 - rl.tokens
+	waitDuration := time.Duration(tokensNeeded / rl.tokensPerSecond * float64(time.Second))
+	if waitDuration < time.Millisecond {
+		waitDuration = time.Millisecond
 	}
-	
-	// Consume one token
-	if rl.tokens > 0 {
+
+	// Use a timer instead of sleeping with lock held
+	timer := time.NewTimer(waitDuration)
+	defer timer.Stop()
+
+	// Release lock while waiting
+	rl.mu.Unlock()
+	<-timer.C
+	rl.mu.Lock()
+
+	// Refill again after waiting
+	rl.refill()
+	if rl.tokens >= 1 {
 		rl.tokens--
 	}
 }
 
 // Done signals that a request has completed
 func (rl *RateLimiter) Done() {
-	// Free up the concurrent slot
 	<-rl.concurrentLimiter
 }
 
@@ -111,11 +102,13 @@ func (rl *RateLimiter) Done() {
 func (rl *RateLimiter) GetStats() map[string]interface{} {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	
+
+	rl.refill()
+
 	return map[string]interface{}{
 		"current_tokens":          rl.tokens,
 		"max_tokens":              rl.maxTokens,
-		"tokens_per_second":       rl.tokensPerSec,
+		"tokens_per_second":       rl.tokensPerSecond,
 		"concurrent_slots_total":  cap(rl.concurrentLimiter),
 		"concurrent_slots_in_use": len(rl.concurrentLimiter),
 	}
