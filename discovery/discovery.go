@@ -13,27 +13,27 @@ import (
 	"github.com/antchfx/xpath"
 	"golang.org/x/net/html"
 
-	"api-security-scanner/types"
 	"api-security-scanner/logging"
+	"api-security-scanner/types"
 )
 
 // DiscoveryConfig represents API discovery configuration
 type DiscoveryConfig struct {
-	Enabled          bool     `yaml:"enabled"`
-	MaxDepth         int      `yaml:"max_depth"`
-	FollowLinks      bool     `yaml:"follow_links"`
-	DiscoverParams   bool     `yaml:"discover_params"`
-	UserAgent        string   `yaml:"user_agent"`
-	ExcludePatterns  []string `yaml:"exclude_patterns"`
+	Enabled         bool     `yaml:"enabled"`
+	MaxDepth        int      `yaml:"max_depth"`
+	FollowLinks     bool     `yaml:"follow_links"`
+	DiscoverParams  bool     `yaml:"discover_params"`
+	UserAgent       string   `yaml:"user_agent"`
+	ExcludePatterns []string `yaml:"exclude_patterns"`
 }
 
 // APIDiscovery handles API endpoint discovery and crawling
 type APIDiscovery struct {
-	config       DiscoveryConfig
-	visited      map[string]bool
-	discovered   []types.APIEndpoint
-	mutex        sync.RWMutex
-	client       *http.Client
+	config     DiscoveryConfig
+	visited    map[string]bool
+	discovered []types.APIEndpoint
+	mutex      sync.RWMutex
+	client     *http.Client
 }
 
 // NewAPIDiscovery creates a new API discovery instance
@@ -66,8 +66,8 @@ func (d *APIDiscovery) DiscoverEndpoints(baseURL string) ([]types.APIEndpoint, e
 	}
 
 	logging.Info("Starting API discovery", map[string]interface{}{
-		"base_url":   baseURL,
-		"max_depth":  d.config.MaxDepth,
+		"base_url":     baseURL,
+		"max_depth":    d.config.MaxDepth,
 		"follow_links": d.config.FollowLinks,
 	})
 

@@ -9,11 +9,11 @@ import (
 
 // RateLimiter controls the rate of requests using a token bucket algorithm
 type RateLimiter struct {
-	mu               sync.Mutex
-	tokens           float64
-	maxTokens        float64
-	tokensPerSecond  float64
-	lastRefill       time.Time
+	mu                sync.Mutex
+	tokens            float64
+	maxTokens         float64
+	tokensPerSecond   float64
+	lastRefill        time.Time
 	concurrentLimiter chan struct{}
 }
 

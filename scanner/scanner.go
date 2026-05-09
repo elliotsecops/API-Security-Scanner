@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"api-security-scanner/logging"
-	"api-security-scanner/ratelimit"
 	"api-security-scanner/discovery"
 	"api-security-scanner/history"
+	"api-security-scanner/logging"
+	"api-security-scanner/ratelimit"
 	"api-security-scanner/types"
 )
 
@@ -23,23 +23,23 @@ const MaxResponseBodySize = 10 * 1024 * 1024 // 10MB
 
 // Config represents the overall configuration
 type Config struct {
-	APIEndpoints       []types.APIEndpoint    `yaml:"api_endpoints"`
-	Auth               Auth                   `yaml:"auth"`
-	InjectionPayloads  []string               `yaml:"injection_payloads"`
-	RateLimiting       RateLimiting           `yaml:"rate_limiting"`
-	XSSPayloads        []string               `yaml:"xss_payloads"`
-	Headers            map[string]string      `yaml:"headers"`
+	APIEndpoints      []types.APIEndpoint `yaml:"api_endpoints"`
+	Auth              Auth                `yaml:"auth"`
+	InjectionPayloads []string            `yaml:"injection_payloads"`
+	RateLimiting      RateLimiting        `yaml:"rate_limiting"`
+	XSSPayloads       []string            `yaml:"xss_payloads"`
+	Headers           map[string]string   `yaml:"headers"`
 	// Phase 3 features
-	NoSQLPayloads      []string               `yaml:"nosql_payloads"`
-	OpenAPISpec        string                `yaml:"openapi_spec"`
-	APIDiscovery       discovery.DiscoveryConfig `yaml:"api_discovery"`
-	HistoricalData     history.HistoricalData  `yaml:"historical_data"`
+	NoSQLPayloads  []string                  `yaml:"nosql_payloads"`
+	OpenAPISpec    string                    `yaml:"openapi_spec"`
+	APIDiscovery   discovery.DiscoveryConfig `yaml:"api_discovery"`
+	HistoricalData history.HistoricalData    `yaml:"historical_data"`
 }
 
 // RateLimiting represents rate limiting configuration
 type RateLimiting struct {
-	RequestsPerSecond      int `yaml:"requests_per_second"`
-	MaxConcurrentRequests  int `yaml:"max_concurrent_requests"`
+	RequestsPerSecond     int `yaml:"requests_per_second"`
+	MaxConcurrentRequests int `yaml:"max_concurrent_requests"`
 }
 
 // Auth represents authentication credentials
@@ -58,14 +58,14 @@ type AuthBypassError struct{ message string }
 type ParameterTamperingError struct{ message string }
 type NoSQLInjectionError struct{ message string }
 
-func (e AuthError) Error() string              { return e.message }
-func (e HTTPMethodError) Error() string        { return e.message }
-func (e InjectionError) Error() string         { return e.message }
-func (e XSSError) Error() string               { return e.message }
-func (e HeaderSecurityError) Error() string    { return e.message }
-func (e AuthBypassError) Error() string        { return e.message }
+func (e AuthError) Error() string               { return e.message }
+func (e HTTPMethodError) Error() string         { return e.message }
+func (e InjectionError) Error() string          { return e.message }
+func (e XSSError) Error() string                { return e.message }
+func (e HeaderSecurityError) Error() string     { return e.message }
+func (e AuthBypassError) Error() string         { return e.message }
 func (e ParameterTamperingError) Error() string { return e.message }
-func (e NoSQLInjectionError) Error() string    { return e.message }
+func (e NoSQLInjectionError) Error() string     { return e.message }
 
 // testRunner holds shared state for test execution
 type testRunner struct {
@@ -683,7 +683,7 @@ func (tr *testRunner) testAuthBypass(endpoint types.APIEndpoint, _ *baselineCach
 
 		if resp2.StatusCode == http.StatusOK || resp2.StatusCode == http.StatusCreated || resp2.StatusCode == http.StatusAccepted {
 			logging.Warn("Authentication bypass with invalid credentials", map[string]interface{}{
-				"url": endpoint.URL,
+				"url":                      endpoint.URL,
 				"status_with_invalid_auth": resp2.StatusCode,
 			})
 			return AuthBypassError{fmt.Sprintf("authentication bypass detected: endpoint accessible with invalid credentials (status: %d)", resp2.StatusCode)}
@@ -723,7 +723,7 @@ func (tr *testRunner) testAuthBypass(endpoint types.APIEndpoint, _ *baselineCach
 
 	if resp3.StatusCode == http.StatusOK || resp3.StatusCode == http.StatusCreated || resp3.StatusCode == http.StatusAccepted {
 		logging.Warn("Authentication bypass with headers", map[string]interface{}{
-			"url": endpoint.URL,
+			"url":                        endpoint.URL,
 			"status_with_bypass_headers": resp3.StatusCode,
 		})
 		return AuthBypassError{fmt.Sprintf("authentication bypass detected: endpoint accessible with bypass headers (status: %d)", resp3.StatusCode)}
@@ -1077,10 +1077,10 @@ func GenerateJSONReport(results []types.EndpointResult) {
 
 	for i, result := range results {
 		output.ScanResults[i] = jsonEndpointResult{
-			Endpoint:         result.URL,
-			Score:            result.Score,
-			Tests:            make([]jsonTestResult, len(result.Results)),
-			RiskAssessment:   generateRiskAssessment(result),
+			Endpoint:       result.URL,
+			Score:          result.Score,
+			Tests:          make([]jsonTestResult, len(result.Results)),
+			RiskAssessment: generateRiskAssessment(result),
 		}
 		for j, tr := range result.Results {
 			output.ScanResults[i].Tests[j] = jsonTestResult{
